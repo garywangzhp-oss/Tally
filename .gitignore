@@ -1,0 +1,21 @@
+# 依赖与构建产物
+node_modules/
+dist/
+release/
+
+# 本地配置：data/config.json 里存着 OpenCode API Key，绝不入库
+data/
+.smoke-data/
+.smoke-data2/
+
+# 自检产生的临时文件
+.smoke*.png
+.*.log
+.*.txt
+
+# 工作区辅助文件（工具生成的临时/记忆文件，含本机路径信息）
+.workbuddy/
+.tree.txt
+
+# 截图归档（体积大，且可从自检重新生成）
+snapshots/

@@ -1,0 +1,33 @@
+{
+  "name": "tally",
+  "productName": "Tally",
+  "version": "0.15.0",
+  "private": true,
+  "author": "GaryWang",
+  "type": "module",
+  "description": "桌面常驻小组件：OpenCode Go 用量 + WorkBuddy 每日积分一键领取",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "npm run build && electron .",
+    "electron": "electron .",
+    "icons": "node scripts/make-icons.mjs",
+    "portable": "node scripts/build-portable.mjs",
+    "portable:full": "node scripts/build-portable.mjs --full",
+    "share": "node scripts/build-portable.mjs --share"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.3",
+    "resedit": "^3.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

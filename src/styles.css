@@ -1,0 +1,974 @@
+:root {
+  --bg: rgba(20, 20, 25, 0.95);
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-strong: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #ededf1;
+  --text-2: #9c9ca8;
+  --text-3: #6c6c78;
+  --green: #35d399;
+  --amber: #f5b740;
+  --red: #f4736f;
+  --accent: #6d8df8;
+  --radius: 16px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 高度由内容撑开，主进程按实测高度调整窗口（见 App.tsx 的 setHeight） */
+.card {
+  position: relative; /* 缩放手柄 / 百分比角标靠它定位 */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* ---------- header ---------- */
+.header {
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  border-bottom: 0.5px solid var(--line);
+  -webkit-app-region: drag;
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+.header-spacer {
+  flex: 1;
+}
+
+.icon-btn {
+  -webkit-app-region: no-drag;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.14s, color 0.14s;
+}
+
+.icon-btn:hover {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.icon-btn.on {
+  color: var(--accent);
+  background: rgba(109, 141, 248, 0.14);
+}
+
+.icon-btn.close:hover {
+  background: rgba(244, 115, 111, 0.18);
+  color: var(--red);
+}
+
+/* ---------- body ---------- */
+.body {
+  overflow: visible;
+  padding: 12px 14px 14px;
+}
+
+.body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 3px;
+}
+
+.section + .section {
+  margin-top: 16px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.section-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+/* ---------- quota ---------- */
+.qrow + .qrow {
+  margin-top: 11px;
+}
+
+.qrow-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.qrow-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.qrow-reset {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.075);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background 0.3s;
+}
+
+.qrow-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.qrow-remain {
+  color: var(--text-2);
+}
+
+.qrow-remain b {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.qrow-usd {
+  margin-left: auto;
+}
+
+.qrow-miss {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: normal;
+}
+
+.qrow-flag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--red);
+  background: rgba(244, 115, 111, 0.16);
+}
+
+/* ---------- notice ---------- */
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.notice.warn {
+  background: rgba(245, 183, 64, 0.1);
+  border-color: rgba(245, 183, 64, 0.24);
+  color: #f0cf94;
+}
+
+.notice.err {
+  background: rgba(244, 115, 111, 0.1);
+  border-color: rgba(244, 115, 111, 0.24);
+  color: #f3a8a5;
+}
+
+.notice .dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 5px;
+  background: currentColor;
+}
+
+.notice code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  word-break: break-all;
+}
+
+/* ---------- checkin ---------- */
+.buddy {
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+}
+
+.buddy-stats {
+  display: flex;
+  gap: 10px;
+}
+
+/* 积分余额：账户级余额，比下面的「本期累计」更值得一眼看到，所以单独做成高亮块 */
+.wb-balance {
+  background: rgba(109, 141, 248, 0.09);
+  border: 1px solid rgba(109, 141, 248, 0.2);
+  border-radius: 10px;
+  padding: 8px 10px 7px;
+  margin-bottom: 10px;
+}
+
+.wb-balance-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.wb-balance-label {
+  font-size: 11px;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.wb-balance-stale {
+  font-size: 9px;
+  line-height: 1.5;
+  padding: 0 3px;
+  border-radius: 4px;
+  color: var(--amber);
+  border: 1px solid rgba(245, 183, 64, 0.38);
+}
+
+.wb-balance-value {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-balance-value span {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 3px;
+}
+
+.wb-bar {
+  height: 4px;
+  border-radius: 2px;
+  margin: 8px 0 5px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.wb-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.wb-balance-foot {
+  display: flex;
+  align-items: baseline;
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* .spacer 只在 .footer / .credit / .buddy-foot 下生效，这里得自己补一条 */
+.wb-balance-foot .spacer {
+  margin-left: auto;
+}
+
+.stat {
+  flex: 1;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 3px;
+}
+
+.stat-value {
+  font-size: 17px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.stat-value span {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 3px;
+}
+
+.dots {
+  display: flex;
+  gap: 4px;
+  margin: 11px 0 3px;
+}
+
+.dot-day {
+  flex: 1;
+  height: 18px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.07);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.dot-day.done {
+  background: rgba(53, 211, 153, 0.2);
+  color: var(--green);
+}
+
+.dot-day.today {
+  box-shadow: inset 0 0 0 1px rgba(109, 141, 248, 0.7);
+}
+
+.claim-btn {
+  width: 100%;
+  margin-top: 11px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  color: #1a1405;
+  background: linear-gradient(180deg, #ffc960, #f0a92c);
+  transition: filter 0.15s, opacity 0.15s;
+}
+
+.claim-btn:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.claim-btn:disabled {
+  cursor: default;
+  color: var(--text-3);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.claim-btn.busy {
+  opacity: 0.6;
+}
+
+.buddy-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.buddy-foot .spacer {
+  margin-left: auto;
+}
+
+/* ---------- WorkBuddy 关联 ---------- */
+.wb-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px 1px 6px;
+  border-radius: 999px;
+  background: rgba(53, 211, 153, 0.12);
+  border: 0.5px solid rgba(53, 211, 153, 0.28);
+  color: #8fe3c2;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.wb-dot.off {
+  background: var(--amber);
+}
+
+.wb-acct.off {
+  background: rgba(245, 183, 64, 0.12);
+  border-color: rgba(245, 183, 64, 0.28);
+  color: #f0cf94;
+}
+
+.link-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: #93aaf9;
+}
+
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wb-detail {
+  margin-top: 9px;
+}
+
+.wb-detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.wb-detail-toggle:hover {
+  color: var(--text-2);
+}
+
+.wb-detail-toggle .caret {
+  font-size: 9px;
+  width: 9px;
+}
+
+.wb-detail-body {
+  margin-top: 6px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 0.5px solid var(--line);
+}
+
+.kv {
+  display: flex;
+  gap: 10px;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.kv > span:first-child {
+  flex: 0 0 62px;
+  color: var(--text-3);
+}
+
+.kv > span:last-child {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}
+
+.kv-col {
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.kv-col > span:first-child {
+  flex: none;
+}
+
+.kv-col > span:last-child {
+  text-align: left;
+}
+
+.mono-dim {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.break {
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.warn-text {
+  color: #f0cf94;
+  line-height: 1.55;
+}
+
+/* ---------- 多账号 ---------- */
+.acct-row {
+  display: flex;
+  gap: 6px;
+  margin: -2px -2px 11px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.acct-row::-webkit-scrollbar {
+  display: none;
+}
+
+.acct {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 8px;
+  border-radius: 999px;
+  border: 0.5px solid var(--line);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.acct:hover {
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.acct.on {
+  background: rgba(109, 141, 248, 0.16);
+  border-color: rgba(109, 141, 248, 0.5);
+  color: var(--text);
+}
+
+.acct-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.acct-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.acct.on .acct-pct {
+  color: var(--text-2);
+}
+
+.acct-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mini-btn {
+  margin-left: auto;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--accent);
+  background: rgba(109, 141, 248, 0.12);
+  border: 0.5px solid rgba(109, 141, 248, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mini-btn:hover:not(:disabled) {
+  background: rgba(109, 141, 248, 0.22);
+}
+
+.mini-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.acct-list {
+  border: 0.5px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.acct-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.14s;
+}
+
+.acct-item + .acct-item {
+  border-top: 0.5px solid var(--line);
+}
+
+.acct-item:hover {
+  background: var(--panel-strong);
+}
+
+.acct-item.on {
+  background: rgba(109, 141, 248, 0.13);
+  color: var(--text);
+}
+
+.acct-radio {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-3);
+}
+
+.acct-item.on .acct-radio {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+
+.acct-item-name {
+  flex: 0 1 auto;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-item-key {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.acct-item-del {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.acct-item-del:hover {
+  background: rgba(244, 115, 111, 0.2);
+  color: var(--red);
+}
+
+.acct-edit {
+  margin-top: 9px;
+  padding: 9px 10px 10px;
+  border-radius: 9px;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+}
+
+.acct-edit-title {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.mini-label {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+.mini-label + .input {
+  margin-bottom: 8px;
+}
+
+.hint {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+/* ---------- settings ---------- */
+.field {
+  margin-bottom: 12px;
+}
+
+.field-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 5px;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.28);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: rgba(109, 141, 248, 0.6);
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.row-between + .row-between {
+  border-top: 0.5px solid var(--line);
+}
+
+.switch {
+  margin-left: auto;
+  width: 34px;
+  height: 19px;
+  border-radius: 10px;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.18s;
+}
+
+.switch > i {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s;
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.switch.on > i {
+  transform: translateX(15px);
+}
+
+.btn {
+  padding: 8px 13px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.btn.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.btn.primary:hover {
+  background: #5c7ef5;
+}
+
+.path {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--text-3);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* ---------- footer ---------- */
+.footer {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-top: 0.5px solid var(--line);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: 0 0 6px;
+}
+
+.status-dot.ok {
+  background: var(--green);
+}
+
+.status-dot.warn {
+  background: var(--amber);
+}
+
+.status-dot.err {
+  background: var(--red);
+}
+
+.footer .spacer {
+  margin-left: auto;
+}
+
+/* ---------- 署名条 ---------- */
+.credit {
+  flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 右边留出 24px 给缩放手柄，版本号不会压到斜纹上 */
+  padding: 0 24px 0 14px;
+  border-top: 0.5px solid var(--line);
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  color: var(--text-3);
+}
+
+.credit .spacer {
+  margin-left: auto;
+}
+
+/* ---------- 等比缩放手柄（右下角） ---------- */
+.resize-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  cursor: nwse-resize;
+  /* header 之外的元素默认不参与拖动窗口，这里显式声明更放心 */
+  -webkit-app-region: no-drag;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+  z-index: 6;
+}
+
+.resize-grip:hover,
+.resize-grip.active {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+.resize-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 25px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.66);
+  border: 0.5px solid var(--line);
+  pointer-events: none;
+  z-index: 7;
+}
