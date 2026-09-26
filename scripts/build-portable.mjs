@@ -45,6 +45,39 @@ function assertExists(p, what) {
   if (!fs.existsSync(p)) fail(`缺少${what}：${p}\n  先在项目根跑一次 vite build 生成 dist/ 再执行本脚本。`);
 }
 
+// ---------- 「删除目录」的替代方案 ----------
+// ⚠️ WorkBuddy 沙箱给 node 注入了 safe-delete 垫片：fs.rmSync 会被路由到回收站程序
+//    （genie-trash），该程序在本机会 spawnSync ETIMEDOUT 抛错 —— 于是 rmSync 既删不掉、
+//    还会中断打包（产物被删一半，状态更脏）。
+//    对策（沿用项目里 vite build 的老办法）：**先把旧目录换名挪到 .trash/，再建新目录**。
+//    换名是瞬时且不触发删除的；挪走的备份在收尾时尽力删除，删不掉会打印路径让人工清理。
+//    ⚠️ 备份必须放在 outRoot **之外**：放进 release/ 会被分发版密钥扫描和 zip 一起带上。
+const trashRoot = path.join(root, '.trash');
+const staleDirs = [];
+
+function resetDir(dir) {
+  if (fs.existsSync(dir)) {
+    const bak = path.join(trashRoot, `${path.basename(path.dirname(dir))}-${path.basename(dir)}-${Date.now()}`);
+    try {
+      fs.mkdirSync(trashRoot, { recursive: true });
+      fs.renameSync(dir, bak);
+      staleDirs.push(bak);
+    } catch (e) {
+      log(`· 换名挪走失败（${e.code || e.message}），退回直接删除…`);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function bestEffortRm(p) {
+  try {
+    fs.rmSync(p, { recursive: true, force: true });
+  } catch (e) {
+    log(`· 提示：${path.relative(root, p)} 未能删除（${e.code || e.message}），可手动清理`);
+  }
+}
+
 log(`${productName} 打包 v${version} · 模式 ${mode === 'share' ? '分发版（空白配置）' : '自用版（保留配置）'}`);
 
 // ---------- 0. 前置检查 ----------
@@ -78,15 +111,14 @@ if (isExeLocked(exePath)) {
 const needRuntime = force || !fs.existsSync(exePath);
 if (needRuntime) {
   log('· 重建整包（含 Electron 运行时，约 370 MB）…');
-  fs.rmSync(outRoot, { recursive: true, force: true });
+  resetDir(outRoot);
   fs.mkdirSync(appDir, { recursive: true });
   fs.cpSync(path.join(root, 'node_modules', 'electron', 'dist'), outRoot, { recursive: true });
-  fs.rmSync(path.join(outRoot, 'resources', 'default_app.asar'), { force: true });
+  bestEffortRm(path.join(outRoot, 'resources', 'default_app.asar'));
   fs.renameSync(path.join(outRoot, 'electron.exe'), exePath);
 } else {
   log(`· 运行时已就位，只同步应用代码（${path.relative(root, exePath)}）…`);
-  fs.rmSync(appDir, { recursive: true, force: true });
-  fs.mkdirSync(appDir, { recursive: true });
+  resetDir(appDir);
 }
 
 // ---------- 2. 应用代码 ----------
@@ -145,6 +177,8 @@ const blankConfig = {
   position: null,
   autoCheckin: false,
   closeToTray: true,
+  // WorkBuddy 凭据自持（refreshToken）—— 分发版必须为空
+  wbCredential: null,
 };
 if (mode === 'share') {
   log('· 写入空白 data/config.json（不含任何密钥）…');
@@ -198,8 +232,9 @@ fs.writeFileSync(
 
 
 一、WorkBuddy 每日积分（需要自己装 WorkBuddy）
-    本软件不保存你的 WorkBuddy 账号密码，它只是读取「WorkBuddy 桌面客户端
-    在这台电脑上留下的登录态」来代你签到，所以：
+    本软件不保存你的 WorkBuddy 账号密码。首次使用时它会从「WorkBuddy 桌面
+    客户端在这台电脑上留下的登录态」读一次凭据，之后由 ${productName} 自己
+    保存并自动续期，所以：
 
       1. 在这台电脑上安装 WorkBuddy 桌面客户端（中国大陆版，接口域名为
          www.codebuddy.cn），并用你自己的账号登录一次；
@@ -214,11 +249,15 @@ fs.writeFileSync(
       · 必须是同一个 Windows 用户 —— 换个 Windows 账号登录，凭据是不同的；
       · 登录完回到 ${productName}，点提示里的「重新检测」。
 
-    关于登录态有效期：客户端每次启动会自动续期（约 60 天一个周期）。
-    长期不开客户端，凭据会过期，届时重新登录一次即可。
+    关于有效期：首次读到凭据时，${productName} 会把其中的续期凭证
+    （refreshToken）存进本目录的 data/config.json，并在令牌快过期时自动换新
+    —— 所以**不需要你经常开着 WorkBuddy 客户端**。
+    凭据仍然绑定「当前这台电脑 + 当前 Windows 用户」：换电脑、或换一个
+    Windows 账号，需要在新的环境里登录一次客户端做首次引导。
 
-    展开面板底部的「关联详情」，可以看到当前挂在哪个账号、凭据读自哪个文件、
-    还剩多少天 —— 换人用 / 换电脑时靠它自查。
+    展开面板底部的「关联详情」，可以看到当前挂在哪个账号、凭据来自哪里
+    （「Tally 自持（本地保存）」＝已自助续期 /「客户端登录态」/「客户端升级
+    留档」）、令牌还剩多少天、下次是否会自动换新 —— 换人用 / 换电脑时靠它自查。
 
     提醒：签到的积分归「当前登录的 WorkBuddy 账号」，每人签自己的。
 
@@ -239,17 +278,24 @@ fs.writeFileSync(
     想重置就把 data 目录删掉，下次启动会自动重建。
     整个软件是绿色的：删掉这个文件夹就等于卸载干净，注册表里不留东西。
 
+    ⚠️ 这个文件里也保存着你的 WorkBuddy 续期凭证，属于敏感信息：
+      自己备份 / 迁移没问题，但**不要把自己用过的 data 目录连同程序一起发给别人**。
+      要分发给他人，请用不含凭据的发行包（里面的 data/config.json 是空白的）。
+
 
 四、可能的疑问
     · 点了 × 之后程序不见了？→ 它收进托盘了，没退出。看右下角通知区域的那个图标；
       左键点一下就能把面板叫回来，右键 →「退出 ${productName}」才是真退出。
     · 面板全是横杠？→ 该账号还没配 Key，或 Key 无效，点「设置」里核对。
-    · 积分余额一直是横杠？→ 90% 是登录态过期了，打开 WorkBuddy 客户端重新登录一次。
+    · 积分余额一直是横杠？→ 先展开「关联详情」看原因：如果写着「未检测到登录态」，
+      在这台电脑登录一次 WorkBuddy 客户端，再点提示里的「重新检测」即可；
+      如果写着「已加密且没有明文留档」或续期失败，先确认电脑能正常联网
+      （续期是联网完成的），网络恢复后会自动重试。
     · 余额和「本期累计」对不上？→ 正常的，余额是账户所有资源包的总剩余，
       「本期累计」只统计本次签到活动期内领到的分数。
     · 数据为什么不是实时？→ 默认 60 秒刷新一次，可在设置里改（20 秒 ~ 30 分钟）。
-    · 能装到 U 盘里带着走吗？→ 可以，但 WorkBuddy 登录态属于「当前这台电脑」，
-      换电脑要重新登录客户端才能签到。
+    · 能装到 U 盘里带着走吗？→ 可以。但 WorkBuddy 凭据绑定「当前这台电脑 +
+      当前 Windows 用户」，换到别的电脑后要在那台机器上登录一次客户端做首次引导。
     · 国际版 CodeBuddy/WorkBuddy 能用吗？→ 目前接口按中国大陆版（codebuddy.cn）
       实现，其它区域版本可能不通。
     · 首次运行时弹出「Windows 已保护你的电脑」？→ 这是 SmartScreen 对未签名程序的
@@ -321,6 +367,10 @@ const featureChecks = [
   ['electron/services/store.cjs', 'autoStart', '开机自启'],
   ['electron/main.cjs', 'setLoginItemSettings', '开机自启写注册表'],
   ['electron/services/workbuddy.cjs', 'BALANCE_URL', '积分余额'],
+  ['electron/services/workbuddy.cjs', 'setCredentialIO', 'WorkBuddy 凭据自持（自助续期）'],
+  ['electron/services/workbuddy.cjs', 'auth/token/refresh', 'WorkBuddy 自助续期端点'],
+  ['electron/services/workbuddy.cjs', 'deadRefresh', '续期被拒后不假乐观'],
+  ['electron/main.cjs', 'wbCredential', '凭据存储接线'],
 ];
 for (const [rel, needle, why] of featureChecks) {
   const file = path.join(appDir, rel);
@@ -338,7 +388,7 @@ if (!/alwaysOnTop:\s*false/.test(storeTxt)) {
 // ---------- 6. 分发版安全闸门 ----------
 if (mode === 'share') {
   log('· 扫描产物，确认没有残留密钥…');
-  const KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{16,}/g;
+  const KEY_PATTERN = /(?:\bsk-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{8,})/g;
   const TEXT_EXT = new Set([
     '.json', '.js', '.cjs', '.mjs', '.ts', '.tsx', '.css', '.html',
     '.txt', '.md', '.yml', '.yaml', '.map',
@@ -375,7 +425,19 @@ if (mode === 'share') {
   }
   const produced = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   if (produced.opencodeProfiles?.length) fail('data/config.json 里仍有账号条目，拒绝出包。');
+  if (produced.wbCredential) fail('data/config.json 里仍有 WorkBuddy 凭据（refreshToken），拒绝出包。');
   log(`  密钥扫描：干净（0 处命中，共 ${stats.files} 个文件 / ${(stats.bytes / 1024 / 1024).toFixed(1)} MB）`);
+}
+
+// ---------- 7. 清理换名挪走的旧目录（尽力而为）----------
+for (const d of staleDirs) {
+  try {
+    fs.rmSync(d, { recursive: true, force: true });
+  } catch {}
+  if (fs.existsSync(d)) {
+    log('');
+    log(`⚠️ 旧目录未能自动清理（本机删除被拦截），可手动删除：${path.relative(root, d)}`);
+  }
 }
 
 log('');

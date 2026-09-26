@@ -13,6 +13,20 @@ data/
 .*.log
 .*.txt
 
+# 自检夹具与临时脚本
+# ⚠️ .smoke-*/ 会被当作 TALLY_DATA_DIR，里面可能落盘**真实凭据**（data/config.json 的
+# wbCredential 含 refreshToken）。必须忽略，否则一次 `git add -A` 就会把凭据推上远程。
+.smoke-*/
+.fake-*/
+.dist-old*/
+.probe*.cjs
+.verify-*.cjs
+.shot*.cjs
+.pkg-run.cjs
+
+# 打包时「换名挪走」的旧目录（本机 fs.rmSync 被沙箱垫片拦截，只能先挪走再尽力删除）
+.trash/
+
 # 工作区辅助文件（工具生成的临时/记忆文件，含本机路径信息）
 .workbuddy/
 .tree.txt

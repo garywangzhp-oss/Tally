@@ -23,6 +23,14 @@ const DEFAULTS = {
   // 开机自动启动。真正的事实来源是 HKCU\...\CurrentVersion\Run 里那条注册表值
   // （main.cjs 的 applyAutoStart/readAutoStart），这里只存用户的意图，启动时会对齐一次。
   autoStart: false,
+  // WorkBuddy 凭据自持（2026-09-26 起）。
+  // ⚠️ 这里是**真实凭据**：客户端把登录态加密后 Tally 读不到 token，所以改成自己拿
+  // refreshToken 去 /v2/plugin/auth/token/refresh 续期（实测不需要 client_secret）。
+  // 形状 { accessToken, refreshToken, expiresAt, refreshExpiresAt, uid, nickname, uin,
+  //        accountType, updatedAt }。
+  // ⚠️ data/ 已在 .gitignore 里，且 build-portable.mjs 的 --share 会写空白配置 + 扫密钥；
+  //    自用版含真凭据，**禁止外发**。
+  wbCredential: null,
 };
 
 const MAX_PROFILES = 8;

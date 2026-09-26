@@ -107,6 +107,32 @@ export interface CheckinDiagnose {
   expiresInDays: number | null;
   refreshInDays: number | null;
   expired: boolean | null;
+  /**
+   * 登录态被客户端加密（at-rest-crypto）时为 true：token / nickname 都是密文包装，
+   * 纯 JS 解不开。此时靠「自持凭据（自助续期）」或客户端明文留档继续可用。
+   */
+  encrypted?: boolean;
+  /**
+   * 凭据实际取自哪里：
+   * - `stored`    本应用自持的凭据（存 data/config.json）
+   * - `refreshed` 刚用自持的 refreshToken 自助续期换来的
+   * - `live`      客户端当前的登录态文件（仍是明文时）
+   * - `backup`    客户端迁移留档（明文，一次性引导）
+   */
+  credSource?: 'stored' | 'refreshed' | 'live' | 'backup' | null;
+  /**
+   * 本应用是否持有 refreshToken —— true 表示能自助续期，**不再依赖客户端登录态文件**，
+   * 也不会因为留档过期而失效。这是「永久可用」的判据。
+   */
+  selfRenew?: boolean;
+  /** 本次是否刚从客户端登录态 / 留档里把 refreshToken 引导进来 */
+  bootstrapped?: boolean;
+  /** 续期失败的提示（仅当本地 token 尚未过期、先顶着用时出现） */
+  refreshError?: string | null;
+  /** 降级：手里没有 refreshToken，只能靠一次性的明文留档，到期即失效 */
+  degraded?: boolean;
+  /** 降级时实际读取的留档文件路径（只读，仅用于自查显示） */
+  backupFile?: string | null;
 }
 
 export type ClaimResult =

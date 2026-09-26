@@ -1,3 +1,16 @@
+/**
+ * 只放行非空字符串；对象 / 数组 / 数字 / 密文包装一律返回 null。
+ *
+ * ⚠️ 这不是多余的防御。WorkBuddy 新版客户端把登录态里的 nickname / phoneNumber 等字段
+ * 换成了密文包装对象 `{ $wbEncrypted: 1, envelope: "..." }`，直接渲染对象会触发
+ * React error #31（Objects are not valid as a React child）→ **整棵渲染树崩掉** →
+ * 窗口变成全透明，进程还在但用户什么都看不见（表现为「双击打不开」）。
+ * 凡是来自外部 JSON 的文本字段，渲染前都必须过这一层。
+ */
+export function text(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
 export function fmtCountdown(sec: number | null | undefined): string {
   if (sec == null || !Number.isFinite(sec)) return '';
   if (sec <= 0) return '0m';

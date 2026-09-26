@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CheckinDiagnose, CreditBalanceResult, StatusResult } from '../types';
-import { dayOnly, fmtCredits, severityOf, colorOf } from '../format';
+import { dayOnly, fmtCredits, severityOf, colorOf, text } from '../format';
 
 type OkStatus = Extract<StatusResult, { ok: true }>;
 type OkBalance = Extract<CreditBalanceResult, { ok: true }>;
@@ -83,6 +83,10 @@ export default function BuddySection({
 
   const canClaim = Boolean(status?.ok && s && s.active && !s.todayCheckedIn);
   const unlinked = Boolean(diagnose && !diagnose.linked);
+  // 已自持 refreshToken：能自助续期，跟客户端登录态文件彻底解耦（「永久可用」的判据）
+  const selfRenew = Boolean(diagnose?.selfRenew);
+  // 降级：手里没有 refreshToken，只能靠一次性的明文留档 —— 到期即失效
+  const degraded = Boolean(diagnose?.degraded);
 
   let buttonText = '领取今日积分';
   if (!s) buttonText = loading ? '读取中…' : '未关联 WorkBuddy';
@@ -91,9 +95,10 @@ export default function BuddySection({
     buttonText = `今日已领 +${s.todayCredit || s.dailyCredit}${s.streakDays ? ` · 连续 ${s.streakDays} 天` : ''}`;
   else buttonText = `领取今日积分 +${s.dailyCredit}`;
 
-  // 关联到的 WorkBuddy 账号：优先用诊断结果（即使接口失败也能显示），兜底用状态返回
-  const acctName = diagnose?.nickname ?? shown?.account?.nickname ?? null;
-  const acctUin = diagnose?.uin ?? shown?.account?.uin ?? null;
+  // 关联到的 WorkBuddy 账号：优先用诊断结果（即使接口失败也能显示），兜底用状态返回。
+  // ⚠️ 必须过 text()：新版客户端的 nickname 是密文对象，直接渲染会炸掉整个界面。
+  const acctName = text(diagnose?.nickname) ?? text(shown?.account?.nickname) ?? null;
+  const acctUin = text(diagnose?.uin) ?? text(shown?.account?.uin) ?? null;
   const linked = Boolean(diagnose ? diagnose.linked : shown);
 
   let notice: { kind: string; text: string } | null = null;
@@ -126,6 +131,19 @@ export default function BuddySection({
           {s?.activityName ? ` · ${s.activityName}` : ''}
         </span>
       </div>
+
+      {/* 自持凭据（selfRenew）不显示横幅 —— 一切正常时保持面板干净；
+          只有走降级路径（degraded）才提示，见下 */}
+      {/* 降级：只有一次性的明文留档，没有可续期的令牌 */}
+      {degraded && (
+        <div className="notice warn" style={{ marginBottom: 10 }}>
+          <span className="dot" />
+          <span>
+            凭据取自客户端升级留档（明文格式），且未拿到可自助续期的令牌，签到与余额可用
+            {diagnose?.expiresAt ? `至 ${dayOnly(diagnose.expiresAt)}` : ''}。
+          </span>
+        </div>
+      )}
 
       {notice && (
         <div className={`notice ${notice.kind}`} style={{ marginBottom: 10 }}>
@@ -260,24 +278,62 @@ export default function BuddySection({
               <div className="kv">
                 <span>账号</span>
                 <span>
-                  {diagnose.nickname ?? '—'}
-                  {diagnose.accountType ? `（${diagnose.accountType}）` : ''}
+                  {text(diagnose.nickname) ?? (diagnose.encrypted ? '（昵称已加密）' : '—')}
+                  {text(diagnose.accountType) ? `（${text(diagnose.accountType)}）` : ''}
                 </span>
               </div>
               <div className="kv">
                 <span>归属</span>
-                <span>{diagnose.uid ? `${diagnose.uid.slice(0, 8)}…` : '—'}</span>
+                <span>{text(diagnose.uid) ? `${text(diagnose.uid)!.slice(0, 8)}…` : '—'}</span>
               </div>
+              {diagnose.encrypted && (
+                <div className="kv kv-col">
+                  <span className="warn-text">
+                    {diagnose.selfRenew
+                      ? '客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM，密钥是客户端编译期静态密钥，Tally 解不开）。Tally 改用自持的 refreshToken 向官方续期端点自助换新，因此仍然可用 —— 客户端文件全程只读，不回写、不外传。'
+                      : '登录态已加密：WorkBuddy 新版把 accessToken 等字段改成 at-rest-crypto 密文（AES-256-GCM，密钥在客户端原生模块里），Tally 解不开，且未找到可用的明文留档 —— 签到与余额暂不可用。用量面板不受影响。'}
+                  </span>
+                </div>
+              )}
               <div className="kv">
                 <span>凭据来源</span>
                 <span>
-                  {diagnose.source === 'known'
-                    ? '标准位置'
-                    : diagnose.source === 'search'
-                      ? '扫描发现'
-                      : '未找到'}
+                  {diagnose.credSource === 'stored'
+                    ? 'Tally 自持（本地保存）'
+                    : diagnose.credSource === 'refreshed'
+                      ? 'Tally 自助续期'
+                      : diagnose.credSource === 'backup'
+                        ? '客户端迁移留档（明文）'
+                        : diagnose.source === 'known'
+                          ? '客户端登录态（标准位置）'
+                          : diagnose.source === 'search'
+                            ? '客户端登录态（扫描发现）'
+                            : '未找到'}
                 </span>
               </div>
+              {(diagnose.selfRenew || diagnose.credSource === 'backup') && (
+                <div className="kv kv-col">
+                  <span>自动续期</span>
+                  <span>
+                    {diagnose.selfRenew
+                      ? `已持有续期凭证${diagnose.refreshInDays != null ? `，${diagnose.refreshInDays} 天内会自动换新` : ''}`
+                      : '无续期凭证：现有凭据到期后将不可用'}
+                  </span>
+                </div>
+              )}
+              {diagnose.refreshError && (
+                <div className="kv kv-col">
+                  <span className="warn-text">
+                    本次续期未成功（先用未过期的本地令牌顶着）：{diagnose.refreshError}
+                  </span>
+                </div>
+              )}
+              {diagnose.degraded && (
+                <div className="kv kv-col">
+                  <span>留档文件</span>
+                  <span className="mono-dim break">{diagnose.backupFile ?? '—'}</span>
+                </div>
+              )}
               <div className="kv">
                 <span>接口</span>
                 <span className="mono-dim">{diagnose.apiHost}</span>
@@ -297,10 +353,12 @@ export default function BuddySection({
                   {diagnose.file ?? `未找到（已尝试 ${diagnose.searchedCount} 个位置）`}
                 </span>
               </div>
-              {!linked && diagnose.dataDirExists && (
+              {!linked && !diagnose.encrypted && diagnose.dataDirExists && (
                 <div className="kv kv-col">
                   <span className="warn-text">
-                    检测到客户端数据目录，但没有登录态 —— 请打开 WorkBuddy 客户端完成登录。
+                    {diagnose.reason === 'bad-file'
+                      ? '登录态文件存在但读取失败（可能被客户端独占或权限不足）。可尝试关闭 WorkBuddy 客户端后再点「重新检测」。'
+                      : '检测到客户端数据目录，但没有登录态 —— 请打开 WorkBuddy 客户端完成登录。'}
                   </span>
                 </div>
               )}

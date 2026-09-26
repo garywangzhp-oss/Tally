@@ -13,6 +13,7 @@ import UsageSection from './components/UsageSection';
 import BuddySection from './components/BuddySection';
 import SettingsSection from './components/SettingsSection';
 import ResizeGrip from './components/ResizeGrip';
+import ErrorBoundary from './components/ErrorBoundary';
 
 type OkUsage = Extract<UsageResult, { ok: true }>;
 type OkStatus = Extract<StatusResult, { ok: true }>;
@@ -260,9 +261,21 @@ export default function App() {
   } else if (mapError || (activeUsage && !activeUsage.ok)) {
     footDot = 'err';
     footText = '用量获取失败';
+  } else if (diagnose?.selfRenew && (!status || status.ok)) {
+    // 凭据由 Tally 自持并在到期前自助续期，不看客户端登录态文件了 —— 属正常状态
+    footDot = 'ok';
+    footText = 'WorkBuddy 凭据：自持';
+  } else if (diagnose?.degraded && (!status || status.ok)) {
+    // 只有一次性的明文留档，没有续期凭证 —— 可用但不牢靠
+    footDot = 'warn';
+    footText = 'WorkBuddy 凭据：留档';
   } else if (status && !status.ok) {
     footDot = 'warn';
-    footText = buddyUnlinked ? 'WorkBuddy 未关联' : '签到状态异常';
+    footText = diagnose?.encrypted
+      ? 'WorkBuddy 登录态已加密'
+      : buddyUnlinked
+        ? 'WorkBuddy 未关联'
+        : '签到状态异常';
   } else if (claiming) {
     footDot = 'warn';
     footText = '领取中…';
@@ -327,18 +340,20 @@ export default function App() {
               lastOkMap={lastOkMap}
               onSwitchProfile={(id) => saveConfig({ activeProfileId: id })}
             />
-            <BuddySection
-              status={status}
-              lastOk={lastOkStatus}
-              balance={balance}
-              lastOkBalance={lastOkBalance}
-              diagnose={diagnose}
-              loading={loadingStatus}
-              claiming={claiming}
-              toast={toast}
-              onClaim={doClaim}
-              onRedetect={redetect}
-            />
+            <ErrorBoundary label="WorkBuddy 加油站" compact>
+              <BuddySection
+                status={status}
+                lastOk={lastOkStatus}
+                balance={balance}
+                lastOkBalance={lastOkBalance}
+                diagnose={diagnose}
+                loading={loadingStatus}
+                claiming={claiming}
+                toast={toast}
+                onClaim={doClaim}
+                onRedetect={redetect}
+              />
+            </ErrorBoundary>
           </>
         )}
       </div>

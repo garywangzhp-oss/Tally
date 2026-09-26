@@ -1001,6 +1001,14 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     store = resolveStore();
+    // WorkBuddy 凭据自持：客户端新版把登录态加密后我们读不到 token，改成拿 refreshToken
+    // 自己去 /v2/plugin/auth/token/refresh 续期（见 workbuddy.cjs 顶部说明）。
+    // 凭据存在本目录 data/config.json —— 自用版含真凭据，禁止外发。
+    workbuddy.setCredentialIO({
+      read: () => store.get('wbCredential') || null,
+      write: (cred) => store.set({ wbCredential: cred }),
+      clear: () => store.set({ wbCredential: null }),
+    });
     // Z 序守护：登记表放在 data 目录下（跟着 TALLY_DATA_DIR 走，自检互不干扰），
     // 守护进程的日志固定写 %TEMP%\tally-keep.log。
     // TALLY_KEEP_DEBUG=1 会被 spawn 出来的 PowerShell 继承，打开逐 tick 决策日志。

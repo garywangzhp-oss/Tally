@@ -972,3 +972,63 @@ body {
   pointer-events: none;
   z-index: 7;
 }
+
+
+/* ---------- 渲染错误兜底（ErrorBoundary）----------
+   ⚠️ 用途：单个字段坏掉时不允许整窗白屏。未捕获的渲染异常会让 React 卸载整棵树，
+   透明窗口就什么都画不出来 —— 用户只会说「打不开」。 */
+.crash-full {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  color: var(--text);
+}
+
+.crash-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.crash-hint {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.crash-msg {
+  font-size: 10.5px;
+  color: var(--text-3);
+  max-height: 120px;
+  overflow: auto;
+}
+
+.crash-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  border-radius: 10px;
+}
+
+.crash-btn {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.crash-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
