@@ -22,8 +22,10 @@ Electron 44 + React 19 + Vite 8 + TypeScript。
 ### WorkBuddy 每日积分
 
 - 自动领取每日签到积分，面板显示连续签到天数、本期累计、本周已签
+- **自动领取默认是关的**，要在设置里打开 `autoCheckin`；开启后每天自动领一次，不用手动点
 - **不需要账号密码，也不做机器绑定**：只读本机 WorkBuddy 客户端留下的登录态，
   所以「装了并登录过」就自动关联到**你自己的账号**
+- 凭据只在**首次启动**读取一次，之后由 Tally 自己保存并自动续期，不用反复去读客户端文件
 - 显示账户**积分余额**（所有资源包求和）与**本期累计**（仅本次签到活动期）
 
 ### 窗口行为
@@ -91,17 +93,20 @@ node scripts/set-exe-resources.mjs     # 单独写 exe 图标与版本信息
 - 所有配置都在程序目录的 `data/config.json`，**纯本地、不上传**
 - 需要重置就删掉 `data/` 目录，下次启动自动重建
 - **仓库里不含任何 API Key**：`data/` 已被 `.gitignore` 排除
-- WorkBuddy 登录态文件只读，不回写；OpenCode Key 存在本地 config，不入库、不外传
+- WorkBuddy 登录态文件**只读、不回写**；OpenCode Key 存在本地 config，不入库、不外传
+- `data/config.json` 里的 `wbCredential` 是 Tally 自己保存的续期凭证（含 refreshToken），
+  同样只在本地流转。**别把用过的 `data/` 目录连着程序一起发给别人** —— 那等于把自己的账号借出去
 
 ```jsonc
 // data/config.json 结构（截取）
 {
   "opencodeProfiles": [{ "id": "...", "name": "个人号", "apiKey": "" }],
   "activeProfileId": "",
+  "wbCredential": null,      // WorkBuddy 续期凭证，首次启动后自动写入（含 refreshToken）
   "refreshSeconds": 60,
   "opacity": 0.97,
   "alwaysOnTop": false,
-  "autoCheckin": false,
+  "autoCheckin": false,      // 每日积分自动领取，默认关闭
   "closeToTray": true,
   "autoStart": false,
   "windowScale": 1
@@ -159,7 +164,8 @@ scripts/
 
 - **仅支持中国大陆版 WorkBuddy**（接口域名 `www.codebuddy.cn`），其它区域版本可能不通
 - WorkBuddy 登录态属于「当前这台电脑 + 当前 Windows 用户」，换机 / 换账号需重新登录客户端
-- 登录态约 60 天一个周期，客户端启动会自动续期；长期不开客户端会过期
+- **首次**必须先在客户端登录过一次，Tally 才能拿到凭据；之后由 Tally 自己保存并**自动续期**，
+  不需要经常打开客户端
 - 绿色版**挪目录后开机自启项失效**，需把开关关掉再打开一次重建路径
 - 未购买代码签名证书，首次运行有 SmartScreen 提示
 
