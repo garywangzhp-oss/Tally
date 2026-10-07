@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('tally', {
 
   fetchUsage: (profileId) => ipcRenderer.invoke('usage:fetch', profileId),
   fetchAllUsage: () => ipcRenderer.invoke('usage:fetchAll'),
+  fetchCommandCode: () => ipcRenderer.invoke('cc:fetch'),
+  fetchUsageHistory: () => ipcRenderer.invoke('usage:history'),
   getCheckinStatus: (opts) => ipcRenderer.invoke('checkin:status', opts),
   claimCheckin: () => ipcRenderer.invoke('checkin:claim'),
   getCheckinDiagnose: (opts) => ipcRenderer.invoke('checkin:diagnose', opts),

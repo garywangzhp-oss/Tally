@@ -114,6 +114,24 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
     say(`已删除「${p.name}」`);
   };
 
+  // commandcode：独立服务的单个 API Key（不与其他账号共用）
+  const [ccKeyDraft, setCcKeyDraft] = useState(config.commandCodeKey ?? '');
+  const [ccReveal, setCcReveal] = useState(false);
+  const [ccSaved, setCcSaved] = useState(false);
+
+  useEffect(() => {
+    setCcKeyDraft(config.commandCodeKey ?? '');
+  }, [config.commandCodeKey]);
+
+  const ccDirty = ccKeyDraft.trim() !== (config.commandCodeKey ?? '').trim();
+
+  const saveCcKey = async () => {
+    const k = ccKeyDraft.trim();
+    await onSave({ commandCodeKey: k, showCommandCode: k ? true : config.showCommandCode });
+    setCcSaved(true);
+    setTimeout(() => setCcSaved(false), 2200);
+  };
+
   const dirty =
     isAdding
       ? Boolean(keyDraft.trim())
@@ -244,6 +262,66 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
         <div className="hint">
           额度挂在账号（订阅）上而不是 key 上。同一个账号生成的多个 key 用量完全相同，合并成一条即可；
           只有不同账号才需要在这里分别添加。
+        </div>
+      </div>
+
+      <div className="field">
+        <div className="acct-head">
+          <label className="field-label" style={{ marginBottom: 0 }}>
+            commandcode 额度
+          </label>
+          <Toggle
+            on={config.showCommandCode}
+            onClick={() => onSave({ showCommandCode: !config.showCommandCode })}
+          />
+        </div>
+
+        <label className="mini-label" htmlFor="cc-key" style={{ marginTop: 9 }}>
+          API Key
+        </label>
+        <input
+          id="cc-key"
+          className="input"
+          type={ccReveal ? 'text' : 'password'}
+          value={ccKeyDraft}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="粘贴 commandcode 的 API Key"
+          onChange={(e) => setCcKeyDraft(e.target.value)}
+        />
+        <div style={{ display: 'flex', gap: 7, marginTop: 7, alignItems: 'center' }}>
+          <button className="btn primary" onClick={saveCcKey} disabled={!ccDirty}>
+            保存
+          </button>
+          <button className="btn" onClick={() => setCcReveal((v) => !v)}>
+            {ccReveal ? '隐藏' : '显示'}
+          </button>
+        </div>
+        {ccSaved && (
+          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 7 }}>已保存</div>
+        )}
+
+        <div className="hint">
+          独立服务，单独填一个 Key 即可（就是 CLI 用的那个，在 commandcode.ai 的 settings/api
+          里生成）。打开上面的开关后，面板上会出现它的额度区块；关闭则只保留配置不显示。
+        </div>
+      </div>
+
+      <div className="field">
+        <div className="acct-head">
+          <label className="field-label" style={{ marginBottom: 0 }}>
+            token 用量图表
+          </label>
+          <Toggle
+            on={config.showUsageChart}
+            onClick={() => onSave({ showUsageChart: !config.showUsageChart })}
+          />
+        </div>
+        <div className="hint">
+          日 / 周 / 月 / 年的 token 用量趋势，OpenCode 与 commandcode 汇总在同一张图里。
+          展开后也可直接点面板上的标题行收起。数据是本地累积采集的 —— 上游没有能用的
+          token 时序接口，所以曲线从开始使用那天起积累。OpenCode 侧按 DeepSeek V4.1 Flash
+          单价估算，标 ≈。
         </div>
       </div>
 

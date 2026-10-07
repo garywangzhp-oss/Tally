@@ -219,6 +219,221 @@ body {
   background: rgba(244, 115, 111, 0.16);
 }
 
+/* ---------- commandcode 区块 ---------- */
+.cc-plan {
+  margin-left: 7px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.cc-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 7px 0 0;
+}
+
+.cc-month-val {
+  margin-left: auto;
+  color: var(--text);
+}
+
+.cc-warn {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--amber);
+}
+
+/* ---------- token 用量图表 ---------- */
+/* 折叠头：整行可点，左边一个会转的箭头。折叠态也留关键数字（见 .uc-head-meta）。 */
+.uc-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  margin: 0 0 9px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.uc-collapsed .uc-head {
+  margin-bottom: 0;
+}
+
+.uc-chev {
+  display: inline-flex;
+  color: var(--text-3);
+  transition: transform 0.16s ease;
+}
+
+.uc-chev.open {
+  transform: rotate(90deg);
+}
+
+.uc-head:hover .uc-chev {
+  color: var(--text-2);
+}
+
+.uc-head-spacer {
+  margin-left: auto;
+}
+
+.uc-head-meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.uc-head:hover .uc-head-meta {
+  color: var(--text-2);
+}
+
+.uc-body {
+  /* 展开时给一点上边距，跟折叠头拉开 */
+  margin-top: 2px;
+}
+
+.uc-est {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--amber);
+  background: rgba(245, 183, 64, 0.14);
+}
+
+.uc-tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.uc-tab {
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.uc-tab:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.uc-tab.on {
+  color: var(--text);
+  background: var(--panel-strong);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.uc-tabs-spacer {
+  margin-left: auto;
+}
+
+.uc-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.uc-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.uc-svg {
+  display: block;
+  overflow: visible;
+}
+
+.uc-axis {
+  font-size: 9px;
+  fill: var(--text-3);
+}
+
+.uc-empty {
+  padding: 18px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.uc-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.uc-readout-date {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.uc-readout-val {
+  margin-left: auto;
+}
+
+.uc-readout-val b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.uc-approx {
+  color: var(--text-3);
+}
+
+.uc-detail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.uc-detail b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.uc-days {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.uc-foot {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
 /* ---------- notice ---------- */
 .notice {
   display: flex;

@@ -3,19 +3,24 @@ import type {
   AppInfo,
   CheckinDiagnose,
   ClaimResult,
+  CommandCodeResult,
   CreditBalanceResult,
   TallyConfig,
   StatusResult,
+  UsageHistorySnapshot,
   UsageResult,
 } from './types';
 import { fmtCredits, fmtVersion } from './format';
 import UsageSection from './components/UsageSection';
+import CommandCodeSection from './components/CommandCodeSection';
+import UsageChart from './components/UsageChart';
 import BuddySection from './components/BuddySection';
 import SettingsSection from './components/SettingsSection';
 import ResizeGrip from './components/ResizeGrip';
 import ErrorBoundary from './components/ErrorBoundary';
 
 type OkUsage = Extract<UsageResult, { ok: true }>;
+type OkCC = Extract<CommandCodeResult, { ok: true }>;
 type OkStatus = Extract<StatusResult, { ok: true }>;
 type OkBalance = Extract<CreditBalanceResult, { ok: true }>;
 
@@ -64,6 +69,13 @@ export default function App() {
   const [usageMap, setUsageMap] = useState<Record<string, UsageResult>>({});
   const [lastOkMap, setLastOkMap] = useState<Record<string, OkUsage>>({});
   const [mapError, setMapError] = useState<string | null>(null);
+  // commandcode 额度：独立服务，单个 Key，不走多账号那套
+  const [ccUsage, setCcUsage] = useState<CommandCodeResult | null>(null);
+  const [ccLastOk, setCcLastOk] = useState<OkCC | null>(null);
+  const [loadingCC, setLoadingCC] = useState(false);
+  // token 用量历史（日/周/月/年）：本地累积采样，不联网
+  const [usageHistory, setUsageHistory] = useState<UsageHistorySnapshot | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [status, setStatus] = useState<StatusResult | null>(null);
   const [lastOkStatus, setLastOkStatus] = useState<OkStatus | null>(null);
   const [balance, setBalance] = useState<CreditBalanceResult | null>(null);
@@ -97,7 +109,7 @@ export default function App() {
     ro.observe(el);
     report();
     return () => ro.disconnect();
-  }, [config, view, usageMap, status, toast]);
+  }, [config, view, usageMap, ccUsage, status, toast, usageHistory]);
 
   const refreshUsage = useCallback(async () => {
     setLoadingUsage(true);
@@ -118,6 +130,31 @@ export default function App() {
       setMapError(`取数失败：${String(e)}`);
     } finally {
       setLoadingUsage(false);
+    }
+  }, []);
+
+  const refreshCC = useCallback(async () => {
+    setLoadingCC(true);
+    try {
+      const r = await window.tally.fetchCommandCode();
+      setCcUsage(r);
+      if (r.ok) setCcLastOk(r);
+    } catch (e) {
+      setCcUsage({ ok: false, reason: 'network', message: `取数失败：${String(e)}` });
+    } finally {
+      setLoadingCC(false);
+    }
+  }, []);
+
+  // 用量历史是纯本地文件，读得快；放在取数之后调用，拿到的是**包含本次采样**的最新聚合
+  const refreshHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      setUsageHistory(await window.tally.fetchUsageHistory());
+    } catch {
+      /* 采集文件损坏时保持上一次的数据，不打断界面 */
+    } finally {
+      setLoadingHistory(false);
     }
   }, []);
 
@@ -195,18 +232,21 @@ export default function App() {
       setConfig(c);
       setInfo(i);
       refreshUsage();
+      refreshCC();
       refreshStatus();
+      refreshHistory();
     })();
-  }, [refreshUsage, refreshStatus]);
+  }, [refreshUsage, refreshCC, refreshStatus, refreshHistory]);
 
   useEffect(() => {
     const ms = Math.max(20, config?.refreshSeconds ?? 60) * 1000;
     const id = setInterval(() => {
-      refreshUsage();
+      // 先取数（取数成功会顺手落一条采样），再读历史，曲线才能带上最新一天
+      Promise.all([refreshUsage(), refreshCC()]).then(() => refreshHistory());
       refreshStatus();
     }, ms);
     return () => clearInterval(id);
-  }, [config?.refreshSeconds, refreshUsage, refreshStatus]);
+  }, [config?.refreshSeconds, refreshUsage, refreshCC, refreshStatus, refreshHistory]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -340,6 +380,32 @@ export default function App() {
               lastOkMap={lastOkMap}
               onSwitchProfile={(id) => saveConfig({ activeProfileId: id })}
             />
+            {config.showCommandCode && (
+              <ErrorBoundary label="commandcode 额度" compact>
+                <CommandCodeSection
+                  result={ccUsage}
+                  lastOk={ccLastOk}
+                  loading={loadingCC}
+                  hasKey={Boolean(config.commandCodeKey)}
+                  now={now}
+                  onOpenSettings={() => setView('settings')}
+                />
+              </ErrorBoundary>
+            )}
+            {/* token 用量汇总图：OpenCode + commandcode 合并成一张表。
+                数据靠本地累积采样（上游没有可用的 token 时序接口），见 usage-history.cjs。
+                OpenCode 侧没有真实 token 数，是按金额折算的估算值 → 标「含估算」。 */}
+            <ErrorBoundary label="token 用量图表" compact>
+              <UsageChart
+                snapshot={usageHistory}
+                loading={loadingHistory}
+                hasEstimated={
+                  (usageHistory?.series?.day ?? []).some((b) => b.estimated && b.total > 0) || false
+                }
+                expanded={Boolean(config.showUsageChart)}
+                onToggle={(v) => saveConfig({ showUsageChart: v })}
+              />
+            </ErrorBoundary>
             <ErrorBoundary label="WorkBuddy 加油站" compact>
               <BuddySection
                 status={status}

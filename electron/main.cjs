@@ -4,8 +4,10 @@ const fs = require('node:fs');
 
 const { Store, sanitizeProfiles } = require('./services/store.cjs');
 const opencode = require('./services/opencode.cjs');
+const commandcode = require('./services/commandcode.cjs');
 const workbuddy = require('./services/workbuddy.cjs');
 const desktopKeeper = require('./services/desktop-keeper.cjs');
+const usageHistory = require('./services/usage-history.cjs');
 
 // 本机 GPU 子进程缺 DLL、Chromium 渲染沙箱也初始化失败（渲染进程报 0xC0000135 -> 白屏）。
 // 完整规避配方：angle + swiftshader + in-process-gpu + 关闭 GPU 沙箱与全局沙箱。
@@ -40,6 +42,8 @@ const WIN_HEIGHT = 452;
 
 let win = null;
 let store = null;
+// 本地 token 用量采集（日/周/月/年图表的数据源）。跟着 data 目录走，见 resolveHistory()。
+let history = null;
 let saveTimer = null;
 let tray = null;
 // 托盘菜单的「退出」是唯一真正的退出路径；点关闭按钮只隐藏。
@@ -71,6 +75,44 @@ function resolveStore() {
 
 function resolveIndex() {
   return path.join(__dirname, '..', 'dist', 'index.html');
+}
+
+/**
+ * 用量历史的存放目录 —— 必须与 store 同目录，否则自检（TALLY_DATA_DIR）时
+ * 采集数据会串到真实数据里。
+ */
+/**
+ * 造一批假历史（只在 TALLY_MOCK_HISTORY=1 时调用），用来在没有真实累计数据时
+ * 调图表样式与坐标轴。用**确定性**伪随机（按天做种子），每次启动曲线一致，方便对比截图。
+ */
+function seedMockHistory(h) {
+  const DAYS = 120;
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  let oc = 0;
+  let cc = 0;
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86400000);
+    // 周末少用一点，工作日多一点，做出肉眼可见的起伏
+    const weekend = d.getDay() === 0 || d.getDay() === 6;
+    const seed = (d.getFullYear() * 372 + (d.getMonth() + 1) * 31 + d.getDate()) % 97;
+    const ocDay = Math.round((weekend ? 180000 : 520000) + seed * 12000);
+    const ccDay = Math.round((weekend ? 60000 : 210000) + seed * 5200);
+    oc += ocDay;
+    cc += ccDay;
+    // 单价与 usage-history.cjs 的 OC_USD_PER_MTOK 保持一致（OpenCode Go 的 DeepSeek V4.1 Flash 混合价）
+    h.record('opencode', { tokens: oc, costUsd: (oc / 1e6) * 0.36, estimated: true }, d);
+    h.record('commandcode', { tokens: cc, costUsd: (cc / 1e6) * 1.2 }, d);
+  }
+}
+
+function resolveHistory() {
+  const dir = process.env.TALLY_DATA_DIR
+    ? process.env.TALLY_DATA_DIR
+    : app.isPackaged
+      ? path.join(path.dirname(app.getPath('exe')), 'data')
+      : path.join(__dirname, '..', 'data');
+  return new usageHistory.UsageHistory(dir);
 }
 
 // ---------- 窗口层级：两种模式，由 store.alwaysOnTop 决定 ----------
@@ -846,6 +888,12 @@ function registerIpc() {
       clean.windowScale = clampScale(patch.windowScale);
       applyScale(clean.windowScale);
     }
+    // commandcode：独立服务的 API Key 与显示开关
+    if (typeof patch?.commandCodeKey === 'string') clean.commandCodeKey = patch.commandCodeKey.trim();
+    if (typeof patch?.showCommandCode === 'boolean') clean.showCommandCode = patch.showCommandCode;
+    // token 用量图表的折叠状态
+    // ⚠️ 这里是**白名单**：新配置项必须同时加进 DEFAULTS 和这里，否则界面改了会被静默丢弃
+    if (typeof patch?.showUsageChart === 'boolean') clean.showUsageChart = patch.showUsageChart;
 
     let next = store.set(clean);
     // 删掉了当前激活账号（或列表被清空）时，自动回落到第一条，避免面板空转
@@ -919,8 +967,82 @@ function registerIpc() {
         }
       })
     );
+
+    // 本地采集：OpenCode 没有 token 字段，只能用「本月已用金额 × 单价」估一个 token 数，
+    // 仅用于趋势对比（窗口里 used 本身就是按套餐折算来的近似值）。
+    // 多账号时取**已用金额最大**的那条代表当前账号，避免切号把曲线抖出锯齿。
+    try {
+      const oks = Object.values(map).filter((r) => r?.ok && Array.isArray(r.windows));
+      if (oks.length) {
+        let best = null;
+        for (const r of oks) {
+          const s = usageHistory.fromOpenCode(r.windows);
+          if (s.costUsd != null && (best == null || s.costUsd > best.costUsd)) best = s;
+        }
+        if (best && best.tokens != null) history.record('opencode', best);
+      }
+    } catch (err) {
+      console.error('[tally] 记录 opencode 用量失败', err);
+    }
+
     return { map, elapsedMs: Date.now() - started, profileCount: profiles.length };
   });
+
+  // commandcode 额度：独立服务，单个 API Key（config.commandCodeKey）
+  ipcMain.handle('cc:fetch', async () => {
+    const started = Date.now();
+    const key = store.get('commandCodeKey') || '';
+    if (process.env.TALLY_MOCK_CC === '1') {
+      // 结构与 2026-10-07 实测的真实响应一致（Go v1 套餐）
+      const mock = {
+        credits: { belowThreshold: false, creditThreshold: 0, monthlyCredits: 10, purchasedCredits: 0, freeCredits: 0 },
+        windowLimits: {
+          limited: true,
+          exceeded: null,
+          fiveHour: { used: 0.66, cap: 3, exceeded: false, resetAt: Date.now() + 2.1 * 3600_000 },
+          weekly: { used: 2.7, cap: 6, exceeded: false, resetAt: Date.now() + 70 * 3600_000 },
+        },
+        sandboxAccess: false,
+        sandboxMinutes: null,
+      };
+      const normalized = commandcode.normalize(mock);
+      return {
+        ok: true,
+        fetchedAt: new Date().toISOString(),
+        windows: normalized.windows,
+        summary: normalized.summary,
+        plan: { planId: 'individual-go-v1', label: 'Go（v1）', status: 'active', currentPeriodEnd: null, cancelAtPeriodEnd: false },
+        recognized: normalized.recognized,
+        raw: JSON.stringify(mock, null, 2),
+        elapsedMs: Date.now() - started,
+        mock: true,
+      };
+    }
+    const result = await commandcode.fetchUsage(key);
+
+    // 本地采集：commandcode 的 /alpha/usage/summary 直接给 totalTokens（真实值，不用估）。
+    // 它是 billing-period 累计，正好适合「每天记一条、差值算当天用量」的采集模型。
+    // 采样失败不影响主流程（额度块照常显示）。
+    try {
+      if (result?.ok) {
+        const summary = await commandcode.fetchTokenSummary(key);
+        if (summary?.ok && summary.tokens != null) {
+          history.record('commandcode', {
+            tokens: summary.tokens,
+            costUsd: summary.costUsd,
+            estimated: false,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[tally] 记录 commandcode 用量失败', err);
+    }
+
+    return { ...result, elapsedMs: Date.now() - started };
+  });
+
+  // 用量历史（日/周/月/年）：纯本地数据，不联网。
+  ipcMain.handle('usage:history', () => history.snapshot());
 
   // refresh=true 时重新探测登录态文件位置（用户刚登录完客户端后点「重新检测」用）
   ipcMain.handle('checkin:status', async (_e, opts) =>
@@ -1001,6 +1123,10 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     store = resolveStore();
+    // 本地用量采集（日/周/月/年曲线）。上游没有 Key 可用的时序接口，只能自己攒，
+    // 见 usage-history.cjs 顶部说明。TALLY_MOCK_HISTORY=1 时造一批假历史，方便调图表样式。
+    history = resolveHistory();
+    if (process.env.TALLY_MOCK_HISTORY === '1') seedMockHistory(history);
     // WorkBuddy 凭据自持：客户端新版把登录态加密后我们读不到 token，改成拿 refreshToken
     // 自己去 /v2/plugin/auth/token/refresh 续期（见 workbuddy.cjs 顶部说明）。
     // 凭据存在本目录 data/config.json —— 自用版含真凭据，禁止外发。

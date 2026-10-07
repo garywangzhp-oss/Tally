@@ -47,13 +47,84 @@ export interface UsageBatchResult {
 }
 
 /**
- * 一个 OpenCode 账号。额度挂在订阅（账号）上而不是 key 上，
+ * commandcode 额度查询结果。独立服务、用 API Key 鉴权。
+ * 接口 GET /alpha/billing/credits 直接给 used/cap 的美元数字，不需要折算。
+ * 只有两档滚动窗口：5 小时 + 周；月度额度是每计费周期初重置。
+ */
+export type CommandCodeResult =
+  | {
+      ok: true;
+      fetchedAt: string;
+      windows: QuotaWindow[];
+      /** 月度额度汇总（credits 字段） */
+      summary: {
+        monthlyCredits: number | null;
+        purchasedCredits: number | null;
+        freeCredits: number | null;
+        belowThreshold: boolean;
+      };
+      /** 订阅信息（套餐名 / 周期），拿不到时为 null */
+      plan: {
+        planId: string | null;
+        label: string | null;
+        status: string | null;
+        currentPeriodEnd: string | null;
+        cancelAtPeriodEnd: boolean;
+      } | null;
+      recognized: number;
+      raw: string;
+      elapsedMs: number;
+      mock?: boolean;
+    }
+  | {
+      ok: false;
+      reason: 'no-key' | 'auth' | 'http' | 'parse' | 'timeout' | 'network' | string;
+      message: string;
+      status?: number;
+      raw?: string;
+      elapsedMs?: number;
+    };
+
+/** 一个 OpenCode 账号。额度挂在订阅（账号）上而不是 key 上，
  * 所以同一个账号的多个 key 在这里应当合并成一条，否则数字会重复。
  */
 export interface OpenCodeProfile {
   id: string;
   name: string;
   apiKey: string;
+}
+
+/** 图表粒度 */
+export type UsageGrain = 'day' | 'week' | 'month' | 'year';
+
+/**
+ * 一个聚合时间桶（一天 / 一周 / 一月 / 一年）。
+ * ⚠️ 上游没有 Key 可用的 token 时序接口，这些数字是 **Tally 本地累积采样** 得来的：
+ *    OpenCode 侧是「按金额折算的估算值」（estimated=true），commandcode 侧是接口直给的真实值。
+ */
+export interface UsageBucket {
+  key: string;
+  label: string;
+  start: string;
+  end: string;
+  opencode: number;
+  commandcode: number;
+  total: number;
+  /** 该桶里含估算数据（UI 用 ≈ 标示） */
+  estimated: boolean;
+  /** 该桶里出现过累计值回退（换号 / 周期重置），当天增量按 0 处理 */
+  reset: boolean;
+  /** 该桶里实际有采样的天数（用于区分「真的是 0」和「没开机没采到」） */
+  days: number;
+}
+
+export interface UsageHistorySnapshot {
+  generatedAt: string;
+  /** 已积累的采样天数 —— 用来提示曲线是从哪天开始攒的 */
+  trackedDays: number;
+  totalTokens: number;
+  since: string | null;
+  series: Record<UsageGrain, UsageBucket[]>;
 }
 
 export interface CheckinStatus {
@@ -192,6 +263,12 @@ export interface TallyConfig {
   windowScale: number;
   /** 开机自动启动（写入 HKCU\...\Run；挪动程序目录后需要重新开关一次） */
   autoStart: boolean;
+  /** commandcode 额度查询用的 API Key（独立服务，不与其他账号共用） */
+  commandCodeKey: string;
+  /** 是否在面板里显示 commandcode 额度区块 */
+  showCommandCode: boolean;
+  /** token 用量图表是否展开（折叠时只留一行标题，点开才画图） */
+  showUsageChart: boolean;
 }
 
 export interface AppInfo {
@@ -209,6 +286,9 @@ export interface TallyBridge {
   ): Promise<{ ok: boolean; config: TallyConfig; autoStartError?: string }>;
   fetchUsage(profileId?: string): Promise<UsageResult>;
   fetchAllUsage(): Promise<UsageBatchResult>;
+  fetchCommandCode(): Promise<CommandCodeResult>;
+  /** 本地累积的 token 用量历史（日/周/月/年），纯读本地文件、不联网 */
+  fetchUsageHistory(): Promise<UsageHistorySnapshot>;
   getCheckinStatus(opts?: { refresh?: boolean }): Promise<StatusResult>;
   claimCheckin(): Promise<ClaimResult>;
   getCheckinDiagnose(opts?: { refresh?: boolean }): Promise<CheckinDiagnose>;

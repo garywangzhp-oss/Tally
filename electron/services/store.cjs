@@ -23,6 +23,13 @@ const DEFAULTS = {
   // 开机自动启动。真正的事实来源是 HKCU\...\CurrentVersion\Run 里那条注册表值
   // （main.cjs 的 applyAutoStart/readAutoStart），这里只存用户的意图，启动时会对齐一次。
   autoStart: false,
+  // commandcode 额度：独立服务，用单独的 API Key（不与其他账号共用）。
+  // 默认不显示，用户填了 Key 并在设置里打开开关后才出现在面板上。
+  commandCodeKey: '',
+  showCommandCode: false,
+  // token 用量图表（日/周/月/年）是否展开。默认**折叠** —— 默认界面保持精简，
+  // 想看趋势再点开。见 UsageChart.tsx。
+  showUsageChart: false,
   // WorkBuddy 凭据自持（2026-09-26 起）。
   // ⚠️ 这里是**真实凭据**：客户端把登录态加密后 Tally 读不到 token，所以改成自己拿
   // refreshToken 去 /v2/plugin/auth/token/refresh 续期（实测不需要 client_secret）。
