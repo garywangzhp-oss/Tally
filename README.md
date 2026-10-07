@@ -1,6 +1,7 @@
 # Tally
 
-> 桌面常驻小组件：**OpenCode Go 用量** + **WorkBuddy 每日积分自动领取**
+> 桌面常驻小组件：**OpenCode Go 用量** + **commandcode 额度** +
+> **WorkBuddy 每日积分自动领取** + **token 用量图表**
 
 一个贴在 Windows 桌面上的小面板。默认可视作「桌面小组件」——待在桌面之上、所有应用窗口之下，
 不遮挡任何工作；被点过拖过之后会自动沉回桌面层。整个程序是绿色的，删掉文件夹即卸载干净。
@@ -27,6 +28,25 @@ Electron 44 + React 19 + Vite 8 + TypeScript。
   所以「装了并登录过」就自动关联到**你自己的账号**
 - 凭据只在**首次启动**读取一次，之后由 Tally 自己保存并自动续期，不用反复去读客户端文件
 - 显示账户**积分余额**（所有资源包求和）与**本期累计**（仅本次签到活动期）
+
+### commandcode 额度
+
+- 独立的第二个额度服务，用**单独的 API Key**（与 OpenCode 账号不共用），在设置里填入后开启
+- 显示**两档滚动窗口**（5 小时 / 本周）的已用百分比、重置倒计时与已用金额
+- token 累计与套餐周期也一并读取（`/alpha/usage/summary`）
+- 默认**不显示**：填了 Key 并打开开关后才出现在面板上
+
+### token 用量图表（日 / 周 / 月 / 年）
+
+- 把 **OpenCode** 与 **commandcode** 两个来源的 token 用量**汇总成一张堆叠柱状图**，
+  四个粒度标签页（日 / 周 / 月 / 年）自由切换，鼠标悬停任意一列看当格明细
+- **可折叠**：默认折叠，折叠状态下也直接露出关键数字（如「近 14 天 ≈ 19M」），
+  点标题栏展开／收起，状态会记住
+- 数据来自**本地累积采样**：上游并没有「挂 Key 就能拿到的 token 时序接口」，
+  所以 Tally 每天记一条当天累计读数、按天做差得出增量 —— 曲线**从 Tally 开始采集那天起**才有数据
+- ⚠️ **OpenCode 侧是估算值**：它的接口只返回百分比、没有 token 字段，
+  这里按「本月已用美元 ÷ 单价」反推，图上标「含估算」并用 `≈` 提示；
+  commandcode 侧是接口直给的真实 token 数
 
 ### 窗口行为
 
@@ -102,6 +122,9 @@ node scripts/set-exe-resources.mjs     # 单独写 exe 图标与版本信息
 {
   "opencodeProfiles": [{ "id": "...", "name": "个人号", "apiKey": "" }],
   "activeProfileId": "",
+  "commandCodeKey": "",      // commandcode 的独立 API Key
+  "showCommandCode": false,  // 是否在面板显示 commandcode 区块
+  "showUsageChart": false,   // token 用量图表是否展开（默认折叠）
   "wbCredential": null,      // WorkBuddy 续期凭证，首次启动后自动写入（含 refreshToken）
   "refreshSeconds": 60,
   "opacity": 0.97,
@@ -112,6 +135,8 @@ node scripts/set-exe-resources.mjs     # 单独写 exe 图标与版本信息
   "windowScale": 1
 }
 ```
+
+> token 用量曲线的历史数据另存于 `data/usage-history.json`（同样纯本地、不入库）。
 
 ---
 
@@ -125,12 +150,15 @@ electron/
   services/
     store.cjs              配置读写与迁移
     opencode.cjs           OpenCode Go 用量取数（宽容解析）
+    commandcode.cjs        commandcode 额度取数（credits / subscriptions / usage）
+    usage-history.cjs      本地累积采样（token 日/周/月/年曲线）
     workbuddy.cjs          登录态定位 + 签到 + 积分余额
     desktop-keeper.cjs     守护进程的生命周期管理
   assets/                  图标（PNG / ICO）
 src/
   App.tsx                  面板主体
-  components/              UsageSection / BuddySection / SettingsSection / ResizeGrip
+  components/              UsageSection / BuddySection / CommandCodeSection /
+                           UsageChart / SettingsSection / ResizeGrip
   types.ts                 渲染层与主进程共享类型
   styles.css
 scripts/
@@ -152,6 +180,9 @@ scripts/
 | `TALLY_DATA_DIR` | 覆盖数据目录（同时隔离 Electron userData，避免与正式版抢单例锁） |
 | `TALLY_SMOKE=1` | 稳定后执行脚本 → 截图 → 退出（配 `_DELAY` / `_OUT` / `_EVAL`） |
 | `TALLY_MOCK_USAGE=1` | 假用量样本，不请求真实接口 |
+| `TALLY_MOCK_CC=1` | 假 commandcode 额度样本 |
+| `TALLY_MOCK_HISTORY=1` | 造 120 天确定性假历史，用来调 token 曲线样式 |
+| `TALLY_STORE_TRACE=1` | 打印每次配置写盘的调用栈，排查「改了没生效」 |
 | `TALLY_KEEP_TEST=1` | Z 序守护链路自检 |
 | `TALLY_SCALE_TEST=1` | 界面等比缩放自检 |
 | `TALLY_AUTOSTART_TEST=1` | 开机自启注册表读写自检 |
