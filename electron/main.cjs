@@ -906,6 +906,21 @@ function registerIpc() {
     return { ok: true, config: next, autoStartError };
   });
 
+  // 把 OpenCode 的窗口状态压成一句话，用来解释「曲线为什么不动」。
+  // 实测 2026-10-08：weekly.status = 'rate-limited' 且 percent=100 时，
+  // 该账号的请求会被上游全部拒绝 → 月度消耗自然停住，曲线看起来"坏了"，其实是额度打满。
+  function summarizeOpenCodeNote(windows) {
+    const list = Array.isArray(windows) ? windows : [];
+    const byKey = (k) => list.find((w) => w.key === k);
+    const week = byKey('week');
+    if (week && (week.status === 'rate-limited' || week.percent >= 100)) {
+      return '本周额度已用满';
+    }
+    const anyLimited = list.find((w) => w.status && w.status !== 'ok');
+    if (anyLimited) return `${anyLimited.label || anyLimited.key} 受限`;
+    return null;
+  }
+
   // 单个账号取数。TALLY_MOCK_USAGE=1 时按账号序号造不同样本（默认关闭，不影响正式取数），
   // 用来在没有真实 Key 时验证解析器、阈值配色以及多账号切换的排版。
   async function fetchOne(profile, index) {
@@ -975,11 +990,17 @@ function registerIpc() {
       const oks = Object.values(map).filter((r) => r?.ok && Array.isArray(r.windows));
       if (oks.length) {
         let best = null;
+        let bestWindows = null;
         for (const r of oks) {
           const s = usageHistory.fromOpenCode(r.windows);
-          if (s.costUsd != null && (best == null || s.costUsd > best.costUsd)) best = s;
+          if (s.costUsd != null && (best == null || s.costUsd > best.costUsd)) {
+            best = s;
+            bestWindows = r.windows;
+          }
         }
-        if (best && best.tokens != null) history.record('opencode', best);
+        if (best && best.tokens != null) {
+          history.record('opencode', { ...best, note: summarizeOpenCodeNote(bestWindows) });
+        }
       }
     } catch (err) {
       console.error('[tally] 记录 opencode 用量失败', err);
@@ -1031,6 +1052,7 @@ function registerIpc() {
             tokens: summary.tokens,
             costUsd: summary.costUsd,
             estimated: false,
+            note: summarizeCommandCodeNote(result, summary),
           });
         }
       }
@@ -1040,6 +1062,20 @@ function registerIpc() {
 
     return { ...result, elapsedMs: Date.now() - started };
   });
+
+  // commandcode 的状态一句话。实测 2026-10-08：刚开通的账号 totalTokens 恒为 0
+  // （一次都没调用过），曲线平在 0 是真实情况。
+  function summarizeCommandCodeNote(result, summary) {
+    const week = (result?.windows || []).find((w) => w.key === 'week');
+    if (week && week.limit > 0 && Number.isFinite(week.used) && week.used >= week.limit) {
+      return '本周额度已用满';
+    }
+    if (Number.isFinite(summary?.tokens) && summary.tokens === 0) {
+      // 从未用过：Key 有效但一次都没调用
+      return '尚无调用记录';
+    }
+    return null;
+  }
 
   // 用量历史（日/周/月/年）：纯本地数据，不联网。
   ipcMain.handle('usage:history', () => history.snapshot());

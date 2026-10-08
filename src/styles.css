@@ -434,6 +434,43 @@ body {
   color: var(--text-3);
 }
 
+/* 为什么曲线不动 —— 把上游状态翻译成人话，弱化但不隐形 */
+.uc-hints {
+  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uc-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--panel);
+  border: 0.5px solid var(--line);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.uc-hint i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+
+.uc-hint-label {
+  flex: none;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.uc-hint-text {
+  color: var(--text-3);
+}
+
 /* ---------- notice ---------- */
 .notice {
   display: flex;

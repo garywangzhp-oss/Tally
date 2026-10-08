@@ -118,6 +118,19 @@ export interface UsageBucket {
   days: number;
 }
 
+/** 一个 provider 的最新采样摘要（用来解释「曲线为什么平着不动」） */
+export interface UsageProviderLatest {
+  /** 最后一次采样的日期 YYYY-MM-DD */
+  date: string;
+  tokens: number | null;
+  costUsd: number | null;
+  estimated: boolean;
+  /** 采样时刻 ISO */
+  at: string | null;
+  /** 上游给的一句话状态，如「本周额度已用满」「尚无调用记录」 */
+  note: string | null;
+}
+
 export interface UsageHistorySnapshot {
   generatedAt: string;
   /** 已积累的采样天数 —— 用来提示曲线是从哪天开始攒的 */
@@ -125,6 +138,10 @@ export interface UsageHistorySnapshot {
   totalTokens: number;
   since: string | null;
   series: Record<UsageGrain, UsageBucket[]>;
+  /** 每个来源的最新一条采样（可能缺某个来源） */
+  latest?: Record<'opencode' | 'commandcode', UsageProviderLatest>;
+  /** 累计读数连续多少天没变（0 = 今天刚涨过）。用来判断「是不是卡住了」 */
+  stagnant?: Record<'opencode' | 'commandcode', number>;
 }
 
 export interface CheckinStatus {

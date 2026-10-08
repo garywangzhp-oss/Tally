@@ -110,7 +110,7 @@ class UsageHistory {
   /**
    * 记一条采样。
    * @param {'opencode'|'commandcode'} provider
-   * @param {{tokens?:number|null, costUsd?:number|null, estimated?:boolean}} sample
+   * @param {{tokens?:number|null, costUsd?:number|null, estimated?:boolean, note?:string}} sample
    * @param {Date|string} [when] 采样时间，默认现在（测试可注入）
    */
   record(provider, sample, when) {
@@ -141,6 +141,9 @@ class UsageHistory {
       at: new Date(when || Date.now()).toISOString(),
     };
     if (prev?.reset || reset) next.reset = true;
+    // 上游给的一句话状态（如 OpenCode 的 "rate-limited"、commandcode 的额度状态），
+    // 只保留非空的，用于前端解释「为什么两条曲线平着不动」。
+    if (typeof sample?.note === 'string' && sample.note) next.note = sample.note;
 
     bucket.providers[provider] = next;
     this.prune();
@@ -269,6 +272,57 @@ class UsageHistory {
     });
   }
 
+  /**
+   * 每个 provider 的最新一条采样摘要（用于解释「曲线为什么平着不动」）。
+   * 取**全部历史**里最后出现的那个值，而不是只看今天。
+   * note 单独往前找最近一条**非空**的：采样只在状态成立时写 note，
+   * 某天没写不该把之前的状态说明丢掉。
+   */
+  latestByProvider() {
+    const dates = Object.keys(this.data.days).sort();
+    const pids = ['opencode', 'commandcode'];
+    const out = {};
+    for (const provider of pids) {
+      let lastNote = null;
+      for (let i = dates.length - 1; i >= 0; i--) {
+        const p = this.data.days[dates[i]].providers?.[provider];
+        if (lastNote == null && typeof p?.note === 'string' && p.note) {
+          lastNote = p.note;
+        }
+        if (!out[provider] && p) {
+          out[provider] = {
+            date: dates[i],
+            tokens: Number.isFinite(p.tokens) ? p.tokens : null,
+            costUsd: Number.isFinite(p.costUsd) ? p.costUsd : null,
+            estimated: Boolean(p.estimated),
+            at: p.at || null,
+            note: null,
+          };
+        }
+        if (out[provider] && lastNote != null) break;
+      }
+      if (out[provider]) out[provider].note = lastNote;
+    }
+    return out;
+  }
+
+  /** 某个 provider 的累计读数**连续多少天没变了**（含最新那天）。0 = 今天刚涨过。 */
+  stagnantDays(provider) {
+    const dates = Object.keys(this.data.days).sort();
+    const vals = [];
+    for (const d of dates) {
+      const p = this.data.days[d].providers?.[provider];
+      if (p && Number.isFinite(p.tokens)) vals.push(p.tokens);
+    }
+    if (vals.length < 2) return 0;
+    let n = 0;
+    for (let i = vals.length - 1; i > 0; i--) {
+      if (vals[i] === vals[i - 1]) n++;
+      else break;
+    }
+    return n;
+  }
+
   /** UI 用的一揽子：四种粒度 + 元信息 */
   snapshot(counts = { day: 14, week: 12, month: 12, year: 5 }) {
     const series = {};
@@ -277,6 +331,7 @@ class UsageHistory {
     }
     const daily = this.dailySeries();
     const totalAll = daily.reduce((a, d) => a + d.total, 0);
+    const latest = this.latestByProvider();
     return {
       generatedAt: new Date().toISOString(),
       trackedDays: Object.keys(this.data.days).length,
@@ -284,6 +339,11 @@ class UsageHistory {
       series,
       // 采样最早一天：用来提示"曲线从这天开始积累"
       since: Object.keys(this.data.days).sort()[0] || null,
+      latest,
+      stagnant: {
+        opencode: this.stagnantDays('opencode'),
+        commandcode: this.stagnantDays('commandcode'),
+      },
     };
   }
 }

@@ -105,6 +105,35 @@ export default function UsageChart({
 
   const hasAny = bars.some((b) => b.total > 0);
 
+  // 「曲线为什么不动」的解释。两个来源可能各自停住，原因不同：
+  //   · OpenCode   —— 周额度打满被拒 / 额度受限（note 由主进程从上游 status 合成）
+  //   · commandcode —— 一次都没调用过（token 恒为 0）
+  // 这里只在「最近确实没涨」时才提示，避免正常使用中也挂着一条废话。
+  const hints = useMemo(() => {
+    const out: { provider: 'opencode' | 'commandcode'; label: string; text: string }[] = [];
+    const st = snapshot?.stagnant;
+    const latest = snapshot?.latest;
+    const stuck = (p: 'opencode' | 'commandcode') => (st?.[p] ?? 0) >= 1;
+    if (stuck('opencode')) {
+      const note = latest?.opencode?.note;
+      out.push({
+        provider: 'opencode',
+        label: 'OpenCode',
+        text: note ? `${note} —— 请求被上游拒绝，用量自然停住` : '累计值已连续多日未变',
+      });
+    }
+    if (stuck('commandcode')) {
+      const note = latest?.commandcode?.note;
+      const isZero = !latest?.commandcode?.tokens;
+      out.push({
+        provider: 'commandcode',
+        label: 'commandcode',
+        text: isZero ? note || '尚无调用记录' : note || '累计值已连续多日未变',
+      });
+    }
+    return out;
+  }, [snapshot]);
+
   // 折叠态也能看到关键数字：用当前粒度的合计当摘要，不至于每次都要点开
   const summaryTotal = snapshot ? bars.reduce((a, b) => a + b.total, 0) : 0;
   const scopeLabel =
@@ -337,6 +366,19 @@ export default function UsageChart({
             自 {snapshot.since} 起累计 {hasEstimated ? '≈ ' : ''}
             {fmtTokens(snapshot.totalTokens)}
             {hasEstimated && ' · OpenCode 侧按 DeepSeek V4.1 Flash 单价估算'}
+          </div>
+        )}
+
+        {/* 为什么曲线不动：把上游状态翻译成人话，避免看起来像功能坏了 */}
+        {hints.length > 0 && (
+          <div className="uc-hints">
+            {hints.map((h) => (
+              <div key={h.provider} className="uc-hint">
+                <i style={{ background: h.provider === 'opencode' ? COLOR_OC : COLOR_CC }} />
+                <span className="uc-hint-label">{h.label}</span>
+                <span className="uc-hint-text">{h.text}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
