@@ -32,7 +32,6 @@
 const API_BASE = 'https://api.commandcode.ai';
 const CREDITS_URL = `${API_BASE}/alpha/billing/credits`;
 const SUBS_URL = `${API_BASE}/alpha/billing/subscriptions`;
-const SUMMARY_URL = `${API_BASE}/alpha/usage/summary`;
 
 // 伪装成浏览器，避免被前置校验拦掉
 const BROWSER_UA =
@@ -153,39 +152,6 @@ async function getJson(url, apiKey, timeoutMs) {
   }
 }
 
-/**
- * 取 token 汇总（给本地用量采集用）。
- * 注意：这是 **billing-period 累计值**（当前计费周期从一开始到现在），不是按日拆分的时序，
- * 所以只能「每天记一条 → 相邻两天做差」得到当天用量，见 usage-history.cjs。
- *
- * 响应样例（2026-10-07 实测，全 0 是因为当天还没跑过请求）：
- *   {"totalCount":0,"totalCost":0,"averageCost":0,"successRate":0,
- *    "completedCount":0,"failedCount":0,"totalTokensIn":0,"totalTokensOut":0,
- *    "totalTokens":0,"totalCredits":0,"periodBasis":"billing-period"}
- */
-async function fetchTokenSummary(apiKey, { timeoutMs = 15000 } = {}) {
-  if (!apiKey) return { ok: false, reason: 'no-key' };
-  try {
-    const { res, text } = await getJson(SUMMARY_URL, apiKey, timeoutMs);
-    if (!res.ok) return { ok: false, reason: 'http', status: res.status };
-    const j = JSON.parse(text);
-    const num = (k) => (typeof j?.[k] === 'number' ? j[k] : null);
-    // 用 totalTokens（in+out 合计）；拿不到就现算
-    const total = num('totalTokens') ?? (num('totalTokensIn') || 0) + (num('totalTokensOut') || 0);
-    return {
-      ok: true,
-      tokens: total || 0,
-      tokensIn: num('totalTokensIn'),
-      tokensOut: num('totalTokensOut'),
-      costUsd: num('totalCost'),
-      requests: num('totalCount'),
-      periodBasis: typeof j?.periodBasis === 'string' ? j.periodBasis : null,
-    };
-  } catch (err) {
-    return { ok: false, reason: err?.name === 'AbortError' ? 'timeout' : 'network' };
-  }
-}
-
 async function fetchUsage(apiKey, { timeoutMs = 15000 } = {}) {
   if (!apiKey) {
     return { ok: false, reason: 'no-key', message: '未配置 commandcode API Key' };
@@ -253,13 +219,11 @@ async function fetchUsage(apiKey, { timeoutMs = 15000 } = {}) {
 
 module.exports = {
   fetchUsage,
-  fetchTokenSummary,
   normalize,
   normalizeSubscription,
   planLabel,
   CREDITS_URL,
   SUBS_URL,
-  SUMMARY_URL,
   API_BASE,
   BROWSER_UA,
 };

@@ -94,56 +94,6 @@ export interface OpenCodeProfile {
   apiKey: string;
 }
 
-/** 图表粒度 */
-export type UsageGrain = 'day' | 'week' | 'month' | 'year';
-
-/**
- * 一个聚合时间桶（一天 / 一周 / 一月 / 一年）。
- * ⚠️ 上游没有 Key 可用的 token 时序接口，这些数字是 **Tally 本地累积采样** 得来的：
- *    OpenCode 侧是「按金额折算的估算值」（estimated=true），commandcode 侧是接口直给的真实值。
- */
-export interface UsageBucket {
-  key: string;
-  label: string;
-  start: string;
-  end: string;
-  opencode: number;
-  commandcode: number;
-  total: number;
-  /** 该桶里含估算数据（UI 用 ≈ 标示） */
-  estimated: boolean;
-  /** 该桶里出现过累计值回退（换号 / 周期重置），当天增量按 0 处理 */
-  reset: boolean;
-  /** 该桶里实际有采样的天数（用于区分「真的是 0」和「没开机没采到」） */
-  days: number;
-}
-
-/** 一个 provider 的最新采样摘要（用来解释「曲线为什么平着不动」） */
-export interface UsageProviderLatest {
-  /** 最后一次采样的日期 YYYY-MM-DD */
-  date: string;
-  tokens: number | null;
-  costUsd: number | null;
-  estimated: boolean;
-  /** 采样时刻 ISO */
-  at: string | null;
-  /** 上游给的一句话状态，如「本周额度已用满」「尚无调用记录」 */
-  note: string | null;
-}
-
-export interface UsageHistorySnapshot {
-  generatedAt: string;
-  /** 已积累的采样天数 —— 用来提示曲线是从哪天开始攒的 */
-  trackedDays: number;
-  totalTokens: number;
-  since: string | null;
-  series: Record<UsageGrain, UsageBucket[]>;
-  /** 每个来源的最新一条采样（可能缺某个来源） */
-  latest?: Record<'opencode' | 'commandcode', UsageProviderLatest>;
-  /** 累计读数连续多少天没变（0 = 今天刚涨过）。用来判断「是不是卡住了」 */
-  stagnant?: Record<'opencode' | 'commandcode', number>;
-}
-
 export interface CheckinStatus {
   active: boolean;
   todayCheckedIn: boolean;
@@ -284,8 +234,6 @@ export interface TallyConfig {
   commandCodeKey: string;
   /** 是否在面板里显示 commandcode 额度区块 */
   showCommandCode: boolean;
-  /** token 用量图表是否展开（折叠时只留一行标题，点开才画图） */
-  showUsageChart: boolean;
 }
 
 export interface AppInfo {
@@ -304,8 +252,6 @@ export interface TallyBridge {
   fetchUsage(profileId?: string): Promise<UsageResult>;
   fetchAllUsage(): Promise<UsageBatchResult>;
   fetchCommandCode(): Promise<CommandCodeResult>;
-  /** 本地累积的 token 用量历史（日/周/月/年），纯读本地文件、不联网 */
-  fetchUsageHistory(): Promise<UsageHistorySnapshot>;
   getCheckinStatus(opts?: { refresh?: boolean }): Promise<StatusResult>;
   claimCheckin(): Promise<ClaimResult>;
   getCheckinDiagnose(opts?: { refresh?: boolean }): Promise<CheckinDiagnose>;

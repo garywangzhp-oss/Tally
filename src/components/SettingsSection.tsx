@@ -308,24 +308,6 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
       </div>
 
       <div className="field">
-        <div className="acct-head">
-          <label className="field-label" style={{ marginBottom: 0 }}>
-            token 用量图表
-          </label>
-          <Toggle
-            on={config.showUsageChart}
-            onClick={() => onSave({ showUsageChart: !config.showUsageChart })}
-          />
-        </div>
-        <div className="hint">
-          日 / 周 / 月 / 年的 token 用量趋势，OpenCode 与 commandcode 汇总在同一张图里。
-          展开后也可直接点面板上的标题行收起。数据是本地累积采集的 —— 上游没有能用的
-          token 时序接口，所以曲线从开始使用那天起积累。OpenCode 侧按 DeepSeek V4.1 Flash
-          单价估算，标 ≈。
-        </div>
-      </div>
-
-      <div className="field">
         <label className="field-label" htmlFor="rsec">
           自动刷新间隔
         </label>
