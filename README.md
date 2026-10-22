@@ -6,6 +6,8 @@
 一个贴在 Windows 桌面上的小面板。默认可视作「桌面小组件」——待在桌面之上、所有应用窗口之下，
 不遮挡任何工作；被点过拖过之后会自动沉回桌面层。整个程序是绿色的，删掉文件夹即卸载干净。
 
+**[下载最新版 v1.2.0](https://github.com/garywangzhp-oss/Tally/releases/latest)** —— 解压即用，无需安装。
+
 Electron 44 + React 19 + Vite 8 + TypeScript。
 
 ---
