@@ -134,8 +134,10 @@ export default function BuddySection({
 
       {/* 自持凭据（selfRenew）不显示横幅 —— 一切正常时保持面板干净；
           只有走降级路径（degraded）才提示，见下 */}
-      {/* 降级：只有一次性的明文留档，没有可续期的令牌 */}
-      {degraded && (
+      {/* 降级：只有一次性的明文留档，没有可续期的令牌。
+          ⚠️ 有错误提示时不再叠加这条 —— 否则会出现「可用至 X 日」和
+          「凭据已失效」同时挂在面板上的自相矛盾（2026-11-02 实测踩到）。 */}
+      {degraded && !notice && (
         <div className="notice warn" style={{ marginBottom: 10 }}>
           <span className="dot" />
           <span>

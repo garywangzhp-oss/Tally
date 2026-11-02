@@ -802,6 +802,30 @@ async function renewOnce(prev) {
 }
 
 /**
+ * 凭据不可用时的提示文案。
+ *
+ * ⚠️ **绝不能说「请在客户端重新登录后再试」**（2026-11-02 实证）：
+ * 客户端现在把 `auth.accessToken` / `auth.refreshToken` 全存成 `$wbEncrypted` 密文，
+ * Tally 读不到；而重新登录会**销毁服务端的 offline session**，把 Tally 手里唯一那份
+ * 明文留档一起作废（留档 accessToken → 401；refreshToken → `invalid_grant:
+ * Offline user session not found`）。也就是说：让用户重新登录，只会把「勉强能用」
+ * 变成「彻底不能用」。文案必须如实说明，并指向可行的引导方式。
+ */
+function expiredMessage(auth) {
+  const src = auth && auth.credSource;
+  if (src === 'backup') {
+    return 'WorkBuddy 凭据已失效：Tally 用的是客户端升级时的明文留档，它已被服务端作废。' +
+      '客户端当前的登录态是加密的，Tally 读不到 —— 重新登录客户端不会恢复，反而会让留档彻底失效。' +
+      '需要在 data/config.json 的 wbCredential 里手动填一条可用的 refreshToken 来重新引导。';
+  }
+  if (src === 'stored') {
+    return 'WorkBuddy 凭据已失效：自助续期被服务端拒绝（refreshToken 已作废）。' +
+      '需要在 data/config.json 的 wbCredential 里重新填一条 refreshToken。';
+  }
+  return 'WorkBuddy 凭据已失效，签到与余额暂不可用。';
+}
+
+/**
  * 积分余额。
  *
  * 返回结构（与客户端 parseResourceSummary / sumSummaryCapacity 同口径）：
@@ -827,7 +851,7 @@ async function getBalance() {
     return {
       ok: false,
       reason: 'expired',
-      message: 'WorkBuddy 凭据已失效，请在客户端重新登录后再试（Tally 下次启动会自动续期）',
+      message: expiredMessage(auth),
     };
   }
   if (!res.json) {
@@ -922,7 +946,7 @@ async function getStatus(opts = {}) {
     return {
       ok: false,
       reason: 'expired',
-      message: 'WorkBuddy 凭据已失效，请在客户端重新登录后再试（Tally 下次启动会自动续期）',
+      message: expiredMessage(auth),
     };
   }
   if (!res.json) {
@@ -963,7 +987,7 @@ async function claim() {
     return {
       ok: false,
       reason: 'expired',
-      message: 'WorkBuddy 凭据已失效，请在客户端重新登录后再试（Tally 下次启动会自动续期）',
+      message: expiredMessage(auth),
     };
   }
   if (!res.json) {
