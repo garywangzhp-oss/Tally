@@ -24,6 +24,10 @@ data/
 .shot*.cjs
 .pkg-run.cjs
 
+# 本地专用模块：从 WorkBuddy 客户端加密登录态就地解密（绕过客户端存储保护）。
+# ⚠️ 绝不入库、绝不分发（packaging --share 会删掉并断言不存在）。
+*.local.cjs
+
 # 打包时「换名挪走」的旧目录（本机 fs.rmSync 被沙箱垫片拦截，只能先挪走再尽力删除）
 .trash/
 

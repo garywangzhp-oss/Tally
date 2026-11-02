@@ -22,7 +22,8 @@ const ALREADY_SIGNED_CODE = 10001;
 // 涉及 account.nickname / account.phoneNumber / **auth.accessToken / auth.refreshToken**。
 // envelope 解出来是 { suite:1, keyId, nonce, authTag, ciphertext }（AES-256-GCM 参数），
 // 但 keyId 对应的密钥在客户端原生模块里（`deriveAtRestKeyId` 走 process_cpu_sampler 绑定），
-// 纯 JS 拿不到 —— 所以这里**只做安全降级，不尝试解密**。
+// 纯 JS 拿不到 —— 所以**本文件只做安全降级，不尝试解密**。
+// （自用版另有一个可选的本地模块能在凭据失效时就地解密一次，见下面 localRecover 的注释。）
 //
 // 血泪教训：**对象绝不能交给渲染层**。原来写 `nickname: account.nickname || null`，
 // 密文对象是 truthy，被原样送进 React 子节点 → React error #31
@@ -37,6 +38,20 @@ function isEncryptedField(v) {
 /** 只放行字符串；对象 / 数字 / 数组 / 密文包装一律返回 null（界面据此显示「—」） */
 function asText(v) {
   return typeof v === 'string' ? v : null;
+}
+
+// ---------- 可选的本地恢复模块（自用版专用，分发版里不存在） ----------
+// 客户端把登录态整体加密后，Tally 读不到明文令牌；而客户端重新登录又会吊销服务端
+// offline session，让 Tally 手里的 refreshToken 直接 401。这时候唯一能自动接上的办法，
+// 是用客户端自己的 at-rest 素材把密文解开 —— 但那等于绕过客户端的存储保护，
+// 不能出现在公开仓库 / 分发版里，所以实现在 wb-recover.local.cjs（.gitignore +
+// 打包时 --share 显式删除）。这里只做**软挂钩**：文件不在就退化成原来的行为。
+let localRecover = null;
+try {
+  // eslint-disable-next-line global-require
+  localRecover = require('./wb-recover.local.cjs');
+} catch {
+  localRecover = null;
 }
 
 // ---------- 凭据回退：客户端迁移留档（2026-09-26 实证） ----------
@@ -643,6 +658,39 @@ async function readAuth({ refresh = false, forceRefresh = false } = {}) {
     }
   }
 
+  // ---------- B2. 本地恢复模块（仅自用版）：客户端登录态被加密时的自动兜底 ----------
+  // 只在「客户端登录态是密文」时才触发 —— 明文能直接读的情况下没必要碰客户端二进制。
+  // 模块内部有 10 分钟冷却 + 失败记忆，不会因为刷新间隔 60s 就反复 spawn 客户端进程。
+  // 成功时把解出来的 refreshToken 换成一对新令牌存进自持凭据，之后照常自助续期。
+  if (localRecover && live && live.encrypted) {
+    const rec = localRecover.recover({ clientFile: file });
+    if (rec && rec.ok && rec.refreshToken) {
+      const r = await refreshToken(rec.refreshToken);
+      // noNewToken = 服务端回 code:0 但没给新令牌（客户端那只 refreshToken 还新鲜）。
+      // 这不算失败 —— 直接用刚解出来的那一对就行，别在界面上报「续期失败」。
+      const renewed = r.ok || r.noNewToken;
+      const seed = {
+        accessToken: r.ok ? r.accessToken : rec.accessToken,
+        refreshToken: r.ok ? r.refreshToken : rec.refreshToken,
+        expiresAt: (r.ok && r.expiresAt) || rec.expiresAt || null,
+        refreshExpiresAt: (r.ok && r.refreshExpiresAt) || rec.refreshExpiresAt || null,
+        uid: rec.uid || (r.ok ? r.uid : null) || null,
+        nickname: rec.nickname || null,
+        uin: rec.uin || null,
+        accountType: rec.accountType || null,
+        updatedAt: Date.now(),
+      };
+      writeStoredCredential(seed);
+      return {
+        ...base,
+        ...authFromCredential(seed, 'recovered'),
+        bootstrapped: true,
+        recovered: true,
+        ...(renewed ? {} : { refreshError: r.message || '续期请求失败，先用解出的令牌顶着' }),
+      };
+    }
+  }
+
   // ---------- C. 客户端迁移留档（明文，当前文件被加密时的兜底） ----------
   if (file) {
     const fb = readPlaintextBackup(path.dirname(file), file, live?.identity?.uid ?? null);
@@ -727,6 +775,10 @@ async function diagnose({ refresh = false } = {}) {
     // 凭据实际取自哪里：stored = 本应用自持；refreshed = 刚自助续期；
     // live = 客户端当前登录态文件；backup = 客户端迁移留档
     credSource: auth.credSource ?? null,
+    // 本机是否具备「从客户端加密登录态就地解密恢复」的能力。
+    // 分发版没有 wb-recover.local.cjs，这里恒为 false —— 界面据此决定要不要提这条路。
+    canRecover: Boolean(localRecover),
+    recovered: auth.recovered ?? false,
     degraded: auth.degraded ?? false,
     selfRenew: auth.selfRenew ?? Boolean(stored && stored.refreshToken),
     bootstrapped: auth.bootstrapped ?? false,

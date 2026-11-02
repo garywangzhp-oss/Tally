@@ -155,9 +155,14 @@ export interface CheckinDiagnose {
    * - `stored`    本应用自持的凭据（存 data/config.json）
    * - `refreshed` 刚用自持的 refreshToken 自助续期换来的
    * - `live`      客户端当前的登录态文件（仍是明文时）
+   * - `recovered` 客户端登录态已加密，用客户端自己的素材就地解密恢复的（仅自用版）
    * - `backup`    客户端迁移留档（明文，一次性引导）
    */
-  credSource?: 'stored' | 'refreshed' | 'live' | 'backup' | null;
+  credSource?: 'stored' | 'refreshed' | 'live' | 'backup' | 'recovered' | null;
+  /** 本机是否具备「从客户端加密登录态就地解密恢复」的能力（分发版恒为 false） */
+  canRecover?: boolean;
+  /** 本次凭据是否由就地解密恢复得到 */
+  recovered?: boolean;
   /**
    * 本应用是否持有 refreshToken —— true 表示能自助续期，**不再依赖客户端登录态文件**，
    * 也不会因为留档过期而失效。这是「永久可用」的判据。

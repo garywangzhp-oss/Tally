@@ -292,8 +292,10 @@ export default function BuddySection({
                 <div className="kv kv-col">
                   <span className="warn-text">
                     {diagnose.selfRenew
-                      ? '客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM，密钥是客户端编译期静态密钥，Tally 解不开）。Tally 改用自持的 refreshToken 向官方续期端点自助换新，因此仍然可用 —— 客户端文件全程只读，不回写、不外传。'
-                      : '登录态已加密：WorkBuddy 新版把 accessToken 等字段改成 at-rest-crypto 密文（AES-256-GCM，密钥在客户端原生模块里），Tally 解不开，且未找到可用的明文留档 —— 签到与余额暂不可用。用量面板不受影响。'}
+                      ? `客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM）。Tally 改用自持的 refreshToken 向官方续期端点自助换新，因此仍然可用${diagnose.canRecover ? '；万一续期凭证被吊销（例如在客户端重新登录过一次），Tally 会用客户端自己的素材就地解密恢复一次，不需要你手动填 token' : ''} —— 客户端文件全程只读，不回写、不外传。`
+                      : diagnose.canRecover
+                        ? '登录态已加密，Tally 会尝试用客户端自己的素材就地解密恢复；若仍失败则签到与余额暂不可用。用量面板不受影响。'
+                        : '登录态已加密：WorkBuddy 新版把 accessToken 等字段改成 at-rest-crypto 密文（AES-256-GCM，密钥在客户端原生模块里），本机这份 Tally 没有恢复能力 —— 签到与余额暂不可用。用量面板不受影响。'}
                   </span>
                 </div>
               )}
@@ -304,7 +306,9 @@ export default function BuddySection({
                     ? 'Tally 自持（本地保存）'
                     : diagnose.credSource === 'refreshed'
                       ? 'Tally 自助续期'
-                      : diagnose.credSource === 'backup'
+                      : diagnose.credSource === 'recovered'
+                        ? '客户端加密登录态（已就地解密恢复）'
+                        : diagnose.credSource === 'backup'
                         ? '客户端迁移留档（明文）'
                         : diagnose.source === 'known'
                           ? '客户端登录态（标准位置）'

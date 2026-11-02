@@ -164,6 +164,25 @@ try {
   fail(`写 PE 资源失败：${e.message}`);
 }
 
+// ---------- 2c. 剥离本地专用模块 ----------
+// wb-recover.local.cjs 里是「从客户端加密登录态就地解密」的实现（绕过客户端存储保护），
+// 只能在自用版存在。分发版必须在复制后立刻删掉，并断言它确实不在了 ——
+// 主流程是 try/catch require 的软挂钩，缺了它自动退化成「凭据失效，请手动引导」。
+const LOCAL_ONLY_MODULES = ['wb-recover.local.cjs', 'wb-recover.local.js'].map((n) =>
+  path.join(appDir, 'electron', 'services', n),
+);
+if (mode === 'share') {
+  for (const p of LOCAL_ONLY_MODULES) {
+    if (!fs.existsSync(p)) continue;
+    fs.unlinkSync(p);
+    log(`· 已从分发版剥离本地专用模块：${path.relative(outRoot, p)}`);
+  }
+  const leaked = LOCAL_ONLY_MODULES.filter((p) => fs.existsSync(p));
+  if (leaked.length) {
+    fail(`分发版里仍有本地专用模块（内含客户端凭据解密逻辑），拒绝出包：${leaked.join(', ')}`);
+  }
+}
+
 // ---------- 3. 配置 ----------
 fs.mkdirSync(path.join(outRoot, 'data'), { recursive: true });
 const cfgPath = path.join(outRoot, 'data', 'config.json');
