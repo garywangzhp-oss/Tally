@@ -56,7 +56,7 @@ export type CommandCodeResult =
       ok: true;
       fetchedAt: string;
       windows: QuotaWindow[];
-      /** 月度额度汇总（credits 字段） */
+      /** 剩余额度汇总（credits 里的 monthly+purchased+free，都是「还剩多少」） */
       summary: {
         monthlyCredits: number | null;
         purchasedCredits: number | null;
@@ -159,6 +159,11 @@ export interface CheckinDiagnose {
    * - `backup`    客户端迁移留档（明文，一次性引导）
    */
   credSource?: 'stored' | 'refreshed' | 'live' | 'backup' | 'recovered' | null;
+  /**
+   * 这份凭据是 Tally 自己走官方网页登录拿到的（origin='login'），
+   * 与客户端登录态完全无关 —— 客户端换账号也不会影响它。
+   */
+  loginOwned?: boolean;
   /** 本机是否具备「从客户端加密登录态就地解密恢复」的能力（分发版恒为 false） */
   canRecover?: boolean;
   /** 本次凭据是否由就地解密恢复得到 */
@@ -176,6 +181,49 @@ export interface CheckinDiagnose {
   degraded?: boolean;
   /** 降级时实际读取的留档文件路径（只读，仅用于自查显示） */
   backupFile?: string | null;
+}
+
+/**
+ * WorkBuddy 自主登录的进度事件（主进程 wb-login.cjs 推出）。
+ * - starting  已发起，正在向服务端申请登录态
+ * - awaiting  登录页已交给浏览器，等用户在里面完成登录
+ * - polling   轮询中（用户还没登完 / 网络抖动重试）
+ * - success   拿到令牌
+ * - failed / canceled
+ */
+export interface WorkbuddyLoginEvent {
+  type: 'starting' | 'awaiting' | 'polling' | 'success' | 'failed' | 'canceled';
+  at: number;
+  authUrl?: string;
+  state?: string;
+  browserOpened?: boolean;
+  message?: string;
+  pollCount?: number;
+  netErrors?: number;
+  code?: number | null;
+  nickname?: string | null;
+  uid?: string | null;
+  uin?: string | null;
+  expiresAt?: number | null;
+  refreshExpiresAt?: number | null;
+}
+
+export interface WorkbuddyLoginSession {
+  state: string | null;
+  authUrl: string | null;
+  startedAt: number;
+  elapsedMs: number;
+}
+
+export interface WorkbuddyLoginResult {
+  ok: boolean;
+  reason?: string | null;
+  message?: string | null;
+  raw?: string;
+  code?: number | null;
+  account?: { nickname: string | null; uid: string | null; uin: string | null };
+  expiresAt?: number | null;
+  refreshExpiresAt?: number | null;
 }
 
 export type ClaimResult =
@@ -261,6 +309,10 @@ export interface TallyBridge {
   claimCheckin(): Promise<ClaimResult>;
   getCheckinDiagnose(opts?: { refresh?: boolean }): Promise<CheckinDiagnose>;
   getCreditBalance(): Promise<CreditBalanceResult>;
+  loginWorkbuddy(): Promise<WorkbuddyLoginResult>;
+  cancelWorkbuddyLogin(): Promise<boolean>;
+  getWorkbuddyLoginState(): Promise<WorkbuddyLoginSession | null>;
+  onWorkbuddyLoginEvent(handler: (evt: WorkbuddyLoginEvent) => void): () => void;
   minimize(): Promise<void>;
   setHeight(height: number): Promise<void>;
   beginScale(): Promise<void>;

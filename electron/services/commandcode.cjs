@@ -100,7 +100,8 @@ function normalize(raw) {
     };
   });
 
-  // 月度额度单独摘出来（不进 windows，作为顶部汇总用）
+  // 剩余额度单独摘出来（不进 windows，作为顶部汇总用）。
+  // ⚠️ monthlyCredits 是「本月还剩多少」，不是月度上限 —— 接口从不给上限。
   const summary = {
     monthlyCredits: typeof credits.monthlyCredits === 'number' ? credits.monthlyCredits : null,
     purchasedCredits:

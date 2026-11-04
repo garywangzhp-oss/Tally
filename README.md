@@ -6,7 +6,7 @@
 一个贴在 Windows 桌面上的小面板。默认可视作「桌面小组件」——待在桌面之上、所有应用窗口之下，
 不遮挡任何工作；被点过拖过之后会自动沉回桌面层。整个程序是绿色的，删掉文件夹即卸载干净。
 
-**[下载最新版 v1.2.1](https://github.com/garywangzhp-oss/Tally/releases/latest)** —— 解压即用，无需安装。
+**[下载最新版 v1.3.1](https://github.com/garywangzhp-oss/Tally/releases/latest)** —— 解压即用，无需安装。
 
 Electron 44 + React 19 + Vite 8 + TypeScript。
 
@@ -26,9 +26,10 @@ Electron 44 + React 19 + Vite 8 + TypeScript。
 
 - 自动领取每日签到积分，面板显示连续签到天数、本期累计、本周已签
 - **自动领取默认是关的**，要在设置里打开 `autoCheckin`；开启后每天自动领一次，不用手动点
-- **不需要账号密码，也不做机器绑定**：只读本机 WorkBuddy 客户端留下的登录态，
-  所以「装了并登录过」就自动关联到**你自己的账号**
-- 凭据只在**首次启动**读取一次，之后由 Tally 自己保存并自动续期，不用反复去读客户端文件
+- **不需要账号密码、不做机器绑定，也不需要安装 WorkBuddy 客户端**：
+  点「登录 WorkBuddy」会用系统浏览器打开**官方登录页**，你在网页里正常登录一次，
+  Tally 拿到的是一份**属于它自己的令牌**（微信扫码 / 手机号 / 企业 SSO 都可以）
+- 之后由 Tally 自己保存并**自动续期**，不再读客户端任何文件，也不用反复登录
 - 显示账户**积分余额**（所有资源包求和）与**本期累计**（仅本次签到活动期）
 
 ### commandcode 额度
@@ -103,9 +104,15 @@ node scripts/set-exe-resources.mjs     # 单独写 exe 图标与版本信息
 - 所有配置都在程序目录的 `data/config.json`，**纯本地、不上传**
 - 需要重置就删掉 `data/` 目录，下次启动自动重建
 - **仓库里不含任何 API Key**：`data/` 已被 `.gitignore` 排除
-- WorkBuddy 登录态文件**只读、不回写**；OpenCode Key 存在本地 config，不入库、不外传
-- `data/config.json` 里的 `wbCredential` 是 Tally 自己保存的续期凭证（含 refreshToken），
-  同样只在本地流转。**别把用过的 `data/` 目录连着程序一起发给别人** —— 那等于把自己的账号借出去
+- WorkBuddy 登录走**官方网页登录**（`POST /v2/plugin/auth/state` → 浏览器登录 →
+  轮询 `/v2/plugin/auth/token`），用的是服务端下发的一次性 `state`；
+  **不读客户端令牌、不解客户端密文、不回写任何客户端文件**
+- 登录拿到的令牌存在本地 `wbCredential`，只在本机流转，**不上传**
+- OpenCode Key 存在本地 config，不入库、不外传
+- 如本机恰好装着 WorkBuddy 客户端，Tally 仍会在**未登录时**只读地借用它的登录态做兜底，
+  但一旦你主动登录过，就只用自己的凭据
+- `data/config.json` 里的 `wbCredential` 是 Tally 自己保存的续期凭证（含 refreshToken）。
+  **别把用过的 `data/` 目录连着程序一起发给别人** —— 那等于把自己的账号借出去
 
 ```jsonc
 // data/config.json 结构（截取）
@@ -138,7 +145,8 @@ electron/
     store.cjs              配置读写与迁移
     opencode.cjs           OpenCode Go 用量取数（宽容解析）
     commandcode.cjs        commandcode 额度取数（credits / subscriptions）
-    workbuddy.cjs          登录态定位 + 签到 + 积分余额
+    workbuddy.cjs          签到 / 积分余额 / 凭据续期 / 登录态定位
+    wb-login.cjs           WorkBuddy 官方网页登录（state → 浏览器 → 轮询令牌）
     desktop-keeper.cjs     守护进程的生命周期管理
   assets/                  图标（PNG / ICO）
 src/
@@ -178,14 +186,14 @@ scripts/
 
 ## 已知限制
 
-- **仅支持中国大陆版 WorkBuddy**（接口域名 `www.codebuddy.cn`），其它区域版本可能不通
-- WorkBuddy 登录态属于「当前这台电脑 + 当前 Windows 用户」，换机 / 换账号需重新登录客户端
-- **首次**必须先在客户端登录过一次，Tally 才能拿到凭据；之后由 Tally 自己保存并**自动续期**，
-  不需要经常打开客户端
+- **仅支持中国大陆版 WorkBuddy**（接口域名 `www.codebuddy.cn` / `www.workbuddy.cn`），
+  其它区域版本可能不通
+- 首次使用需要**点一次「登录 WorkBuddy」**在浏览器里完成登录（不需要装客户端）；
+  之后由 Tally 自己保存并自动续期
 - 绿色版**挪目录后开机自启项失效**，需把开关关掉再打开一次重建路径
 - 未购买代码签名证书，首次运行有 SmartScreen 提示
 
 ## 免责
 
-本软件通过读取本机客户端的登录态代你调用官方接口，属个人效率工具。
-请自行确认使用方式符合所在平台的服务条款。
+本软件通过 WorkBuddy 官方网页登录获取属于使用者本人的令牌，并据此调用官方接口，
+属个人效率工具。请自行确认使用方式符合所在平台的服务条款。

@@ -6,6 +6,7 @@ const { Store, sanitizeProfiles } = require('./services/store.cjs');
 const opencode = require('./services/opencode.cjs');
 const commandcode = require('./services/commandcode.cjs');
 const workbuddy = require('./services/workbuddy.cjs');
+const wbLogin = require('./services/wb-login.cjs');
 const desktopKeeper = require('./services/desktop-keeper.cjs');
 
 // 本机 GPU 子进程缺 DLL、Chromium 渲染沙箱也初始化失败（渲染进程报 0xC0000135 -> 白屏）。
@@ -60,14 +61,20 @@ let baselineCssH = WIN_HEIGHT;
 // 拖动右下角时的状态（origin/起始倍率/轮询定时器），null = 没在拖
 let scaleDrag = null;
 
+/** 数据目录（配置文件与诊断日志的落点） */
+function resolveDataDir() {
+  // TALLY_DATA_DIR 可覆盖数据目录：用于自检时隔离配置、或同一份程序跑多套数据
+  if (process.env.TALLY_DATA_DIR) return process.env.TALLY_DATA_DIR;
+  const root = app.isPackaged ? path.dirname(app.getPath('exe')) : __dirname + path.sep + '..';
+  return path.join(root, 'data');
+}
+
 function resolveStore() {
   // TALLY_DATA_DIR 可覆盖数据目录：用于自检时隔离配置、或同一份程序跑多套数据
   if (process.env.TALLY_DATA_DIR) {
     return new Store(process.env.TALLY_DATA_DIR, process.env.TALLY_DATA_DIR);
   }
-  const root = app.isPackaged ? path.dirname(app.getPath('exe')) : __dirname + path.sep + '..';
-  const base = path.join(root, 'data');
-  return new Store(base, app.getPath('userData'));
+  return new Store(resolveDataDir(), app.getPath('userData'));
 }
 
 function resolveIndex() {
@@ -973,6 +980,55 @@ function registerIpc() {
   ipcMain.handle('checkin:diagnose', async (_e, opts) =>
     workbuddy.diagnose({ refresh: Boolean(opts?.refresh) })
   );
+
+  // ---------- WorkBuddy 自主登录（官方网页登录，1.3.0 起） ----------
+  // 流程与客户端完全一致：申请 state → 系统浏览器登录 → 轮询取令牌。
+  // 主进程跑完整条流程并通过 webContents 推事件，所以面板收起/失焦都不影响登录。
+  //
+  // 诊断：每次登录把各请求的原始响应追加进 <data>/login-trace.log，
+  // 用来查「浏览器登完了但这里还在等」这类只能看服务端原文才说得清的问题。
+  const loginTracePath = () => path.join(resolveDataDir(), 'login-trace.log');
+  const pushLoginTrace = (line) => {
+    try {
+      fs.appendFileSync(loginTracePath(), `${new Date().toISOString()} ${line}\n`, 'utf8');
+    } catch {
+      /* 诊断日志写不进去不该影响登录 */
+    }
+  };
+
+  ipcMain.handle('wb:login-start', async () => {
+    pushLoginTrace(`\n===== 开始登录 ${new Date().toLocaleString()} =====`);
+    const r = await wbLogin.startLogin({
+      openExternal: (url) => shell.openExternal(url).then(() => true),
+      onEvent: (evt) => {
+        if (win && !win.isDestroyed()) win.webContents.send('wb:login-event', evt);
+      },
+      trace: pushLoginTrace,
+    });
+    if (!r.ok) {
+      pushLoginTrace(`===== 结束：失败 ${r.reason || ''} ${r.message || ''} =====`);
+      return r;
+    }
+    // 令牌只在主进程落盘，渲染层只拿到账号名与有效期
+    const saved = workbuddy.saveCredential(r.credential);
+    pushLoginTrace(
+      `===== 结束：成功 ${r.credential.nickname || ''} ${r.credential.uid || ''} 落盘=${saved} =====`
+    );
+    return {
+      ok: saved,
+      reason: saved ? null : 'save-failed',
+      message: saved ? null : '登录成功，但凭据没能写入本地配置',
+      account: {
+        nickname: r.credential.nickname,
+        uid: r.credential.uid,
+        uin: r.credential.uin,
+      },
+      expiresAt: r.credential.expiresAt,
+      refreshExpiresAt: r.credential.refreshExpiresAt,
+    };
+  });
+  ipcMain.handle('wb:login-cancel', () => wbLogin.cancelLogin());
+  ipcMain.handle('wb:login-state', () => wbLogin.currentSession());
 
   ipcMain.handle('window:minimize', () => {
     if (win && !win.isDestroyed()) win.minimize();

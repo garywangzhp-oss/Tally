@@ -338,6 +338,7 @@ const syncPairs = [
   'electron/services/store.cjs',
   'electron/services/opencode.cjs',
   'electron/services/workbuddy.cjs',
+  'electron/services/wb-login.cjs',
   'electron/services/desktop-keeper.cjs',
   'electron/assets/icon.ico',
   'electron/assets/app-256.png',
@@ -390,6 +391,11 @@ const featureChecks = [
   ['electron/services/workbuddy.cjs', 'auth/token/refresh', 'WorkBuddy 自助续期端点'],
   ['electron/services/workbuddy.cjs', 'deadRefresh', '续期被拒后不假乐观'],
   ['electron/main.cjs', 'wbCredential', '凭据存储接线'],
+  // 自主登录（1.3.0）：分发版**必须有**，否则收包人无法关联自己的账号
+  ['electron/services/wb-login.cjs', 'auth/state', 'WorkBuddy 官方网页登录（申请 state）'],
+  ['electron/services/wb-login.cjs', '11217', '登录轮询的「等待中」业务码'],
+  ['electron/services/wb-login.cjs', 'auth/token', '登录令牌轮询端点'],
+  ['electron/main.cjs', 'wb:login-start', '自主登录 IPC 接线'],
 ];
 for (const [rel, needle, why] of featureChecks) {
   const file = path.join(appDir, rel);

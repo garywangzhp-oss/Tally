@@ -12,6 +12,17 @@ contextBridge.exposeInMainWorld('tally', {
   getCheckinDiagnose: (opts) => ipcRenderer.invoke('checkin:diagnose', opts),
   getCreditBalance: () => ipcRenderer.invoke('checkin:balance'),
 
+  // WorkBuddy 自主登录：主进程用系统浏览器打开官方登录页并轮询令牌，
+  // 进度通过 wb:login-event 推回来（awaiting / polling / success / failed / canceled）。
+  loginWorkbuddy: () => ipcRenderer.invoke('wb:login-start'),
+  cancelWorkbuddyLogin: () => ipcRenderer.invoke('wb:login-cancel'),
+  getWorkbuddyLoginState: () => ipcRenderer.invoke('wb:login-state'),
+  onWorkbuddyLoginEvent: (handler) => {
+    const listener = (_e, evt) => handler(evt);
+    ipcRenderer.on('wb:login-event', listener);
+    return () => ipcRenderer.removeListener('wb:login-event', listener);
+  },
+
   minimize: () => ipcRenderer.invoke('window:minimize'),
   setHeight: (height) => ipcRenderer.invoke('window:height', height),
   // 拖右下角等比缩放：渲染层只报告「按下 / 松手」，位移由主进程轮询鼠标自己算

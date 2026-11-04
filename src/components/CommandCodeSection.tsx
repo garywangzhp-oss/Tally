@@ -33,7 +33,10 @@ export default function CommandCodeSection({
     notice = { kind: 'warn', text: '刷新失败，显示上次成功的数据。' };
   }
 
-  // 月度额度：monthly + purchased + free 是可用总量
+  // 剩余额度：credits 里这三个字段都是「还剩多少」，相加才是当前可用余额。
+  // ⚠️ 别把它当成月度额度上限 —— 2026-11-04 实测一个快用完的 GOAT 账号：
+  // monthlyCredits=0.115（本月剩 12 美分），而它 5h/周窗口的 cap 是 $14/$35，
+  // 反推月额度 $70。接口全程没给过「总额度」，只有「剩余」。
   const s = shown?.summary;
   const monthTotal =
     s && (s.monthlyCredits != null || s.purchasedCredits != null || s.freeCredits != null)
@@ -133,7 +136,7 @@ export default function CommandCodeSection({
 
       {monthTotal != null && (
         <div className="cc-month">
-          <span>月度额度</span>
+          <span>剩余额度</span>
           <span className="cc-month-val">
             {fmtMoney(monthTotal)}
             {s?.belowThreshold ? <span className="cc-warn"> 余额偏低</span> : null}

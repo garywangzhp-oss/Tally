@@ -5,11 +5,19 @@ const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
 // 真实接口只返回 percent（已用百分比），没有金额字段，这里的 usd 仅作折算基准。
-// $30/周、$60/月 与官方文档一致；5 小时窗口官方未给数字，沿用社区口径 $12。
+//
+// 2026-11 核对官方 Go 文档（opencode.ai/docs/go）：$10/月这一档，DeepSeek V4.1 Flash
+// 月额度 $100，且「5 小时 = 月额度 20%、每周 = 50%、每月 = 100%」——所以是
+// $20 / $50 / $100。此前写的 $12/$30/$60 对应的是 Operation Cheepseek 第二阶段，
+// 已过期（第四阶段把额度从 $60 抬到 $100），照旧值折算会把花费低估约 40%。
+//
+// ⚠️ 两个前提：① 只对 Go（$10）成立，Go Plus（$40）月额度 $200，这三个数要翻倍；
+// ② OpenCode 的额度是**按模型分别计算**的，接口给的是当前生效模型的百分比。
+// 若改用 GLM-5.3-Flash（$60）或 Kimi K3（$15），基准并不一样。
 const PLAN_LIMITS = {
-  fiveHour: { usd: 12, label: '5 小时' },
-  week: { usd: 30, label: '本周' },
-  month: { usd: 60, label: '本月' },
+  fiveHour: { usd: 20, label: '5 小时' },
+  week: { usd: 50, label: '本周' },
+  month: { usd: 100, label: '本月' },
 };
 
 // 实测 2026-09-21，接口返回形如：

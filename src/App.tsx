@@ -81,6 +81,12 @@ export default function App() {
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // WorkBuddy 自主登录（官方网页登录）：idle 之外的状态都由主进程事件驱动
+  const [loginPhase, setLoginPhase] = useState<'idle' | 'starting' | 'awaiting' | 'polling'>('idle');
+  const [loginAuthUrl, setLoginAuthUrl] = useState<string | null>(null);
+  // 本次登录的 state：只用来在界面上露尾号，方便和浏览器地址栏对号（浏览器里开着多个登录页时靠它分辨）
+  const [loginState, setLoginState] = useState<string | null>(null);
+  const [loginBrowserOpened, setLoginBrowserOpened] = useState(true);
   const [now, setNow] = useState(Date.now());
   // 当前界面缩放倍率：设置页滑块改的是 config，拖右下角时由主进程推回来
   const [scale, setScale] = useState(1);
@@ -104,7 +110,7 @@ export default function App() {
     ro.observe(el);
     report();
     return () => ro.disconnect();
-  }, [config, view, usageMap, ccUsage, status, toast]);
+  }, [config, view, usageMap, ccUsage, status, toast, loginPhase, loginAuthUrl, loginState, loginBrowserOpened]);
 
   const refreshUsage = useCallback(async () => {
     setLoadingUsage(true);
@@ -191,6 +197,67 @@ export default function App() {
       setTimeout(() => setToast(null), 7000);
     }
   }, [refreshStatus]);
+
+  // ---------- WorkBuddy 自主登录 ----------
+  // 主进程负责「申请 state → 开浏览器 → 轮询令牌」整条流程，这里只跟进度事件走。
+  // 关键点：令牌不会回到渲染层，登录成功后主进程直接写进本地凭据。
+  useEffect(
+    () =>
+      window.tally.onWorkbuddyLoginEvent((evt) => {
+        if (evt.type === 'starting') setLoginPhase('starting');
+        if (evt.type === 'awaiting') {
+          setLoginPhase('awaiting');
+          setLoginAuthUrl(evt.authUrl ?? null);
+          setLoginState(evt.state ?? null);
+          setLoginBrowserOpened(evt.browserOpened !== false);
+        }
+        if (evt.type === 'polling') setLoginPhase('polling');
+        if (evt.type === 'canceled' || evt.type === 'failed') {
+          setLoginPhase('idle');
+          setLoginAuthUrl(null);
+          setLoginState(null);
+        }
+      }),
+    []
+  );
+
+  const doLogin = useCallback(async () => {
+    setLoginPhase('starting');
+    setLoginAuthUrl(null);
+    setLoginState(null);
+    // busy = 已有一个登录流程在跑（主进程那边还在轮询），这时不能把它的等待状态冲掉
+    let keepPending = false;
+    try {
+      const r = await window.tally.loginWorkbuddy();
+      if (r.ok) {
+        const who = r.account?.nickname ? `：${r.account.nickname}` : '';
+        setToast(`已登录 WorkBuddy${who}`);
+        // refresh=true：让主进程重新探测一次，新的自持凭据立刻生效
+        await refreshStatus({ refresh: true });
+      } else if (r.reason === 'busy') {
+        keepPending = true;
+        setToast('已有一个登录流程在进行中，请先在浏览器里完成它');
+      } else if (r.reason !== 'canceled') {
+        setToast(r.message || '登录失败');
+      }
+    } catch (e) {
+      setToast(`登录失败：${String(e)}`);
+    } finally {
+      if (!keepPending) {
+        setLoginPhase('idle');
+        setLoginAuthUrl(null);
+        setLoginState(null);
+      }
+      setTimeout(() => setToast(null), 9000);
+    }
+  }, [refreshStatus]);
+
+  const doCancelLogin = useCallback(() => {
+    window.tally.cancelWorkbuddyLogin();
+    setLoginPhase('idle');
+    setLoginAuthUrl(null);
+    setLoginState(null);
+  }, []);
 
   // 托盘 tooltip：鼠标悬停托盘图标就能看到余额/连续天数，不用打开面板
   useEffect(() => {
@@ -284,19 +351,19 @@ export default function App() {
     footDot = 'err';
     footText = '用量获取失败';
   } else if (diagnose?.selfRenew && (!status || status.ok)) {
-    // 凭据由 Tally 自持并在到期前自助续期，不看客户端登录态文件了 —— 属正常状态
+    // 凭据由 Tally 自持并在到期前自助续期；origin='login' 时更是 Tally 自己登录拿的令牌
     footDot = 'ok';
-    footText = 'WorkBuddy 凭据：自持';
+    footText = diagnose.loginOwned ? 'WorkBuddy：已登录' : 'WorkBuddy 凭据：自持';
   } else if (diagnose?.degraded && (!status || status.ok)) {
     // 只有一次性的明文留档，没有续期凭证 —— 可用但不牢靠
     footDot = 'warn';
     footText = 'WorkBuddy 凭据：留档';
   } else if (status && !status.ok) {
     footDot = 'warn';
-    footText = diagnose?.encrypted
-      ? 'WorkBuddy 登录态已加密'
-      : buddyUnlinked
-        ? 'WorkBuddy 未关联'
+    footText = buddyUnlinked
+      ? 'WorkBuddy 未登录'
+      : diagnose?.encrypted
+        ? 'WorkBuddy 登录态已加密'
         : '签到状态异常';
   } else if (claiming) {
     footDot = 'warn';
@@ -386,6 +453,12 @@ export default function App() {
                 toast={toast}
                 onClaim={doClaim}
                 onRedetect={redetect}
+                loginPhase={loginPhase}
+                loginAuthUrl={loginAuthUrl}
+                loginState={loginState}
+                loginBrowserOpened={loginBrowserOpened}
+                onLogin={doLogin}
+                onCancelLogin={doCancelLogin}
               />
             </ErrorBoundary>
           </>

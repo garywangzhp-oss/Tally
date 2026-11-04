@@ -16,6 +16,15 @@ interface Props {
   toast: string | null;
   onClaim: () => void;
   onRedetect: () => void;
+  /** WorkBuddy 自主登录（官方网页登录）的进度；idle 以外都由主进程事件驱动 */
+  loginPhase: 'idle' | 'starting' | 'awaiting' | 'polling';
+  /** 服务端给的官方登录页地址（浏览器没自动打开时让用户手动点） */
+  loginAuthUrl: string | null;
+  /** 本次登录的 state，界面上只露尾部几位，用来和浏览器地址栏对号 */
+  loginState: string | null;
+  loginBrowserOpened: boolean;
+  onLogin: () => void;
+  onCancelLogin: () => void;
 }
 
 const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
@@ -62,6 +71,12 @@ export default function BuddySection({
   toast,
   onClaim,
   onRedetect,
+  loginPhase,
+  loginAuthUrl,
+  loginState,
+  loginBrowserOpened,
+  onLogin,
+  onCancelLogin,
 }: Props) {
   const [showDetail, setShowDetail] = useState(false);
 
@@ -83,13 +98,20 @@ export default function BuddySection({
 
   const canClaim = Boolean(status?.ok && s && s.active && !s.todayCheckedIn);
   const unlinked = Boolean(diagnose && !diagnose.linked);
+  // 正在走官方网页登录（starting = 还没拿到 authUrl，awaiting/polling = 等用户在浏览器里登）
+  const loggingIn = loginPhase !== 'idle';
   // 已自持 refreshToken：能自助续期，跟客户端登录态文件彻底解耦（「永久可用」的判据）
   const selfRenew = Boolean(diagnose?.selfRenew);
   // 降级：手里没有 refreshToken，只能靠一次性的明文留档 —— 到期即失效
   const degraded = Boolean(diagnose?.degraded);
 
   let buttonText = '领取今日积分';
-  if (!s) buttonText = loading ? '读取中…' : '未关联 WorkBuddy';
+  if (loggingIn) {
+    buttonText = loginPhase === 'starting' ? '正在准备登录…' : '等待浏览器登录…';
+  } else if (unlinked) {
+    // 没关联 / 凭据失效：主操作直接变成「登录」，不再是死掉的「未关联 WorkBuddy」
+    buttonText = '登录 WorkBuddy';
+  } else if (!s) buttonText = loading ? '读取中…' : '未关联 WorkBuddy';
   else if (!s.active) buttonText = '当前无签到活动';
   else if (s.todayCheckedIn)
     buttonText = `今日已领 +${s.todayCredit || s.dailyCredit}${s.streakDays ? ` · 连续 ${s.streakDays} 天` : ''}`;
@@ -147,7 +169,38 @@ export default function BuddySection({
         </div>
       )}
 
-      {notice && (
+      {/* ---------- 官方网页登录进行中 ---------- */}
+      {loggingIn && (
+        <div className="notice" style={{ marginBottom: 10 }}>
+          <span className="dot" />
+          <span>
+            {loginPhase === 'starting'
+              ? '正在向 WorkBuddy 申请登录态…'
+              : loginBrowserOpened
+                ? `已在浏览器打开 WorkBuddy 登录页${
+                    loginState ? `（请求 ${loginState.slice(-6)}）` : ''
+                  }，在里面完成登录后这里会自动继续。浏览器里若开着多个 WorkBuddy 登录页，请用「刚刚打开的那个」 —— 旧标签对应的是早先已失效的请求。`
+                : '请点击下面的链接打开 WorkBuddy 登录页，完成登录后这里会自动继续。'}
+            {loginAuthUrl && (
+              <>
+                {' '}
+                <button
+                  className="link-btn"
+                  onClick={() => window.tally.openExternal(loginAuthUrl)}
+                >
+                  打开登录页
+                </button>
+              </>
+            )}
+            {' '}
+            <button className="link-btn" onClick={onCancelLogin}>
+              取消
+            </button>
+          </span>
+        </div>
+      )}
+
+      {notice && !loggingIn && (
         <div className={`notice ${notice.kind}`} style={{ marginBottom: 10 }}>
           <span className="dot" />
           <span>
@@ -155,6 +208,9 @@ export default function BuddySection({
             {unlinked && (
               <>
                 {' '}
+                <button className="link-btn" onClick={onLogin} disabled={loading}>
+                  登录
+                </button>{' '}
                 <button className="link-btn" onClick={onRedetect} disabled={loading}>
                   {loading ? '检测中…' : '重新检测'}
                 </button>
@@ -234,9 +290,9 @@ export default function BuddySection({
         </div>
 
         <button
-          className={`claim-btn${claiming ? ' busy' : ''}`}
-          disabled={!canClaim || claiming}
-          onClick={onClaim}
+          className={`claim-btn${claiming || loggingIn ? ' busy' : ''}`}
+          disabled={loggingIn || (!unlinked && (!canClaim || claiming))}
+          onClick={unlinked ? onLogin : onClaim}
         >
           {claiming ? '领取中…' : buttonText}
         </button>
@@ -291,30 +347,32 @@ export default function BuddySection({
               {diagnose.encrypted && (
                 <div className="kv kv-col">
                   <span className="warn-text">
-                    {diagnose.selfRenew
-                      ? `客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM）。Tally 改用自持的 refreshToken 向官方续期端点自助换新，因此仍然可用${diagnose.canRecover ? '；万一续期凭证被吊销（例如在客户端重新登录过一次），Tally 会用客户端自己的素材就地解密恢复一次，不需要你手动填 token' : ''} —— 客户端文件全程只读，不回写、不外传。`
-                      : diagnose.canRecover
-                        ? '登录态已加密，Tally 会尝试用客户端自己的素材就地解密恢复；若仍失败则签到与余额暂不可用。用量面板不受影响。'
-                        : '登录态已加密：WorkBuddy 新版把 accessToken 等字段改成 at-rest-crypto 密文（AES-256-GCM，密钥在客户端原生模块里），本机这份 Tally 没有恢复能力 —— 签到与余额暂不可用。用量面板不受影响。'}
+                    {diagnose.loginOwned
+                      ? '客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM），但这已经不影响 Tally —— 现在用的是「登录 WorkBuddy」拿到的独立令牌，跟客户端文件无关。客户端文件全程只读，不回写、不外传。'
+                      : diagnose.selfRenew
+                        ? '客户端已把登录态文件里的 token 加密（at-rest-crypto：AES-256-GCM）。Tally 改用自持的 refreshToken 向官方续期端点自助换新，因此仍然可用；万一续期凭证被吊销，点「登录 WorkBuddy」重新登录一次即可 —— 不再需要去折腾客户端。'
+                        : '客户端把登录态文件里的 token 加密了（at-rest-crypto：AES-256-GCM，密钥在客户端原生模块里）。点「登录 WorkBuddy」用官方网页登录一次，Tally 就会拿到自己独立的一份令牌，从此不依赖客户端。'}
                   </span>
                 </div>
               )}
               <div className="kv">
                 <span>凭据来源</span>
                 <span>
-                  {diagnose.credSource === 'stored'
-                    ? 'Tally 自持（本地保存）'
-                    : diagnose.credSource === 'refreshed'
-                      ? 'Tally 自助续期'
-                      : diagnose.credSource === 'recovered'
-                        ? '客户端加密登录态（已就地解密恢复）'
-                        : diagnose.credSource === 'backup'
-                        ? '客户端迁移留档（明文）'
-                        : diagnose.source === 'known'
-                          ? '客户端登录态（标准位置）'
-                          : diagnose.source === 'search'
-                            ? '客户端登录态（扫描发现）'
-                            : '未找到'}
+                  {diagnose.loginOwned
+                    ? 'Tally 登录（官方网页登录）'
+                    : diagnose.credSource === 'stored'
+                      ? 'Tally 自持（本地保存）'
+                      : diagnose.credSource === 'refreshed'
+                        ? 'Tally 自助续期'
+                        : diagnose.credSource === 'recovered'
+                          ? '客户端加密登录态（已就地解密恢复）'
+                          : diagnose.credSource === 'backup'
+                            ? '客户端迁移留档（明文）'
+                            : diagnose.source === 'known'
+                              ? '客户端登录态（标准位置）'
+                              : diagnose.source === 'search'
+                                ? '客户端登录态（扫描发现）'
+                                : '未找到'}
                 </span>
               </div>
               {(diagnose.selfRenew || diagnose.credSource === 'backup') && (
@@ -364,10 +422,21 @@ export default function BuddySection({
                   <span className="warn-text">
                     {diagnose.reason === 'bad-file'
                       ? '登录态文件存在但读取失败（可能被客户端独占或权限不足）。可尝试关闭 WorkBuddy 客户端后再点「重新检测」。'
-                      : '检测到客户端数据目录，但没有登录态 —— 请打开 WorkBuddy 客户端完成登录。'}
+                      : '检测到客户端数据目录，但没有可用的登录态 —— 直接点下面的「登录 WorkBuddy」即可，不需要先去客户端登录。'}
                   </span>
                 </div>
               )}
+              {/* 换账号 / 凭据失效的统一入口：走官方网页登录，拿到 Tally 自己的令牌 */}
+              <div className="kv">
+                <span>登录</span>
+                <button className="link-btn" onClick={onLogin} disabled={loading || loggingIn}>
+                  {loggingIn
+                    ? '等待浏览器登录…'
+                    : linked
+                      ? '换账号 / 重新登录'
+                      : '登录 WorkBuddy'}
+                </button>
+              </div>
             </div>
           )}
         </div>

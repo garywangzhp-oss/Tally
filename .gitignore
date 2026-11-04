@@ -20,6 +20,8 @@ data/
 .fake-*/
 .dist-old*/
 .probe*.cjs
+# 临时反编译 / 探测客户端 bundle 的脚本目录（含大体积中间产物）
+.probe/
 .verify-*.cjs
 .shot*.cjs
 .pkg-run.cjs

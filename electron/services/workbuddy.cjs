@@ -356,14 +356,18 @@ function authFromCredential(cred, credSource, extra = {}) {
     uin: cred.uin ?? null,
     accountType: cred.accountType ?? null,
     credSource,
+    // 这份凭据是不是 Tally 自己走官方网页登录拿到的（跟客户端无关）
+    loginOwned: cred.origin === 'login',
     // 「降级」= 手里没有 refreshToken，只能等过期 —— 有 refreshToken 就是自持，不算降级
     degraded: !selfRenew,
     selfRenew,
     encrypted: false,
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-    expiresInDays: expiresAt ? Math.floor((expiresAt - Date.now()) / DAY_MS) : null,
+    // 用 round 而不是 floor：令牌刚签发时剩余是 29.9999 天，floor 会显示成「剩 29 天」，
+    // 看起来像是少了一天、甚至像 bug。round 才对得上服务端给的 30 天整。
+    expiresInDays: expiresAt ? Math.round((expiresAt - Date.now()) / DAY_MS) : null,
     refreshExpiresAt: refreshExpiresAt ? new Date(refreshExpiresAt).toISOString() : null,
-    refreshInDays: refreshExpiresAt ? Math.floor((refreshExpiresAt - Date.now()) / DAY_MS) : null,
+    refreshInDays: refreshExpiresAt ? Math.round((refreshExpiresAt - Date.now()) / DAY_MS) : null,
     expired: expiresAt ? Date.now() >= expiresAt : false,
     ...extra,
   };
@@ -381,8 +385,38 @@ function credentialFrom({ token, refreshToken, expiresAt, refreshExpiresAt, iden
     nickname: id.nickname || null,
     uin: id.uin || null,
     accountType: id.accountType || null,
+    // 凭据从哪来：
+    //   'client' = 从客户端登录态 / 留档蹭来的 → 用户在客户端换账号时必须跟着作废，否则串号
+    //   'login'  = Tally 自己走官方网页登录拿到的 → **跟客户端彻底解耦**，
+    //              哪怕客户端登的是另一个账号也不用管（见 A 分支的 origin 判断）
+    origin: 'client',
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * 写入一份「Tally 自主登录」拿到的凭据（由 wb-login.cjs 的流程调用）。
+ * origin='login' 有两层含义：一是绕过客户端 uid 比对，二是在界面上如实标明来源。
+ */
+function saveCredential(cred) {
+  if (!cred || typeof cred !== 'object' || !asText(cred.accessToken)) return false;
+  const next = {
+    accessToken: cred.accessToken,
+    refreshToken: asText(cred.refreshToken),
+    expiresAt: Number(cred.expiresAt) || null,
+    refreshExpiresAt: Number(cred.refreshExpiresAt) || null,
+    uid: asText(cred.uid),
+    nickname: asText(cred.nickname),
+    uin: asText(cred.uin),
+    accountType: asText(cred.accountType),
+    origin: 'login',
+    updatedAt: Date.now(),
+  };
+  writeStoredCredential(next);
+  // 刚拿到的令牌一定没有「被服务端拒绝」的历史，把内存里的黑名单也清掉，
+  // 否则同一个账号重新登录后 selfRenew 会莫名其妙是 false。
+  if (next.refreshToken) deadRefresh.delete(next.refreshToken);
+  return true;
 }
 
 /** 只读客户端当前文件里的账号身份（用来判断用户是不是换了账号） */
@@ -591,7 +625,10 @@ async function readAuth({ refresh = false, forceRefresh = false } = {}) {
   const stored = readStoredCredential();
   if (stored) {
     const clientUid = (live && live.identity && live.identity.uid) || peekClientIdentity(file)?.uid;
-    if (clientUid && stored.uid && clientUid !== stored.uid) {
+    // ⚠️ 只有「蹭客户端来的」凭据才做账号比对。
+    // Tally 自己登录（origin='login'）拿到的是独立令牌，用户完全可能是
+    // 「客户端登 A 账号、Tally 用 B 账号」—— 那种情况下清掉它才是 bug。
+    if (stored.origin !== 'login' && clientUid && stored.uid && clientUid !== stored.uid) {
       // 客户端换账号了 —— 自持凭据属于旧账号，必须丢掉，宁可不可用也不能串号
       clearStoredCredential();
     } else {
@@ -714,9 +751,11 @@ async function readAuth({ refresh = false, forceRefresh = false } = {}) {
     return {
       ok: false,
       reason: 'no-file',
+      // 从 1.3.0 起 Tally 能自己做官方网页登录，**不再要求本机装客户端**。
+      // 这里不再让人去找客户端，直接引导点登录。
       message: dataDirExists()
-        ? '检测到 WorkBuddy 客户端数据，但未找到登录态。请在客户端里完成登录后再点「重新检测」。'
-        : '未检测到 WorkBuddy 登录态。请先在本机安装并登录 WorkBuddy 客户端。',
+        ? '检测到 WorkBuddy 客户端数据，但没有可用的登录态。点「登录 WorkBuddy」用官方网页登录一次即可。'
+        : '还没关联 WorkBuddy 账号。点「登录 WorkBuddy」用官方网页登录一次即可（不需要安装客户端）。',
       ...base,
     };
   }
@@ -742,8 +781,8 @@ async function readAuth({ refresh = false, forceRefresh = false } = {}) {
     ok: false,
     reason: encrypted ? 'encrypted' : 'no-token',
     message: encrypted
-      ? 'WorkBuddy 登录态已加密，且没有可用的明文留档：签到与余额暂不可用'
-      : '登录态中缺少 accessToken，请在 WorkBuddy 客户端重新登录',
+      ? 'WorkBuddy 登录态已加密，Tally 读不到明文令牌。点「登录 WorkBuddy」自己登录一次即可（不需要客户端里的令牌）。'
+      : '登录态中缺少 accessToken。点「登录 WorkBuddy」用官方网页登录一次即可。',
     ...base,
     encrypted,
     ...identity,
@@ -773,8 +812,10 @@ async function diagnose({ refresh = false } = {}) {
     accountType: asText(auth.accountType),
     encrypted: auth.encrypted ?? false,
     // 凭据实际取自哪里：stored = 本应用自持；refreshed = 刚自助续期；
-    // live = 客户端当前登录态文件；backup = 客户端迁移留档
+    // live = 客户端当前登录态文件；backup = 客户端迁移留档；recovered = 就地解密恢复
     credSource: auth.credSource ?? null,
+    // 这份凭据是 Tally 自己登录拿到的（origin='login'），与客户端完全无关
+    loginOwned: auth.loginOwned ?? false,
     // 本机是否具备「从客户端加密登录态就地解密恢复」的能力。
     // 分发版没有 wb-recover.local.cjs，这里恒为 false —— 界面据此决定要不要提这条路。
     canRecover: Boolean(localRecover),
@@ -860,21 +901,24 @@ async function renewOnce(prev) {
  * 客户端现在把 `auth.accessToken` / `auth.refreshToken` 全存成 `$wbEncrypted` 密文，
  * Tally 读不到；而重新登录会**销毁服务端的 offline session**，把 Tally 手里唯一那份
  * 明文留档一起作废（留档 accessToken → 401；refreshToken → `invalid_grant:
- * Offline user session not found`）。也就是说：让用户重新登录，只会把「勉强能用」
- * 变成「彻底不能用」。文案必须如实说明，并指向可行的引导方式。
+ * Offline user session not found`）。
+ *
+ * 从 1.3.0 起有了**正确解法**：Tally 自己走一次官方网页登录拿独立令牌
+ * （见 wb-login.cjs），从此跟客户端存储彻底无关。所以文案统一指向「点登录」，
+ * 而不是让用户去折腾客户端。
  */
 function expiredMessage(auth) {
   const src = auth && auth.credSource;
   if (src === 'backup') {
-    return 'WorkBuddy 凭据已失效：Tally 用的是客户端升级时的明文留档，它已被服务端作废。' +
-      '客户端当前的登录态是加密的，Tally 读不到 —— 重新登录客户端不会恢复，反而会让留档彻底失效。' +
-      '需要在 data/config.json 的 wbCredential 里手动填一条可用的 refreshToken 来重新引导。';
+    return 'WorkBuddy 凭据已失效：之前用的是客户端升级时的明文留档，已被服务端作废。' +
+      '点「登录 WorkBuddy」用官方网页登录一次，Tally 会拿到自己独立的一份令牌，' +
+      '以后不再依赖客户端。';
   }
-  if (src === 'stored') {
-    return 'WorkBuddy 凭据已失效：自助续期被服务端拒绝（refreshToken 已作废）。' +
-      '需要在 data/config.json 的 wbCredential 里重新填一条 refreshToken。';
+  if (src === 'stored' || src === 'refreshed') {
+    return 'WorkBuddy 凭据已失效：续期被服务端拒绝（refreshToken 已作废）。' +
+      '点「登录 WorkBuddy」重新登录一次即可恢复。';
   }
-  return 'WorkBuddy 凭据已失效，签到与余额暂不可用。';
+  return 'WorkBuddy 凭据已失效，签到与余额暂不可用。点「登录 WorkBuddy」可以重新关联。';
 }
 
 /**
@@ -1087,6 +1131,8 @@ module.exports = {
   // 自助续期
   setCredentialIO,
   refreshToken,
+  // 自主登录（wb-login.cjs 拿到令牌后写进来）
+  saveCredential,
   STATUS_URL,
   CHECKIN_URL,
   BALANCE_URL,
