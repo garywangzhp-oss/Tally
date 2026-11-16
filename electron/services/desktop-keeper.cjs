@@ -15,6 +15,11 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 
+// ⚠️ 只支持 Windows：整套机制建立在 EnumWindows / SetWindowPos 这些 Win32 调用上，
+// macOS 没有等价物（贴桌面在 mac 上退化为「普通层级 + 全 Space 常驻」，见 platform.cjs）。
+// 这里做硬守卫，保证 mac 上 update() 是纯 no-op —— 否则会去 spawn 一个不存在的 powershell。
+const SUPPORTED = process.platform === 'win32';
+
 const SCRIPT = path.join(__dirname, '..', 'desktop-keep.ps1');
 const RESPAWN_THROTTLE_MS = 5000;
 
@@ -47,6 +52,7 @@ function isRunning() {
 
 // entries: [{ win, topmost }] —— 只传**应当可见**的窗口。空数组 = 面板收在托盘里。
 function update(entries) {
+  if (!SUPPORTED) return; // macOS：没有这层机制，静默跳过
   if (!handlesFile || unavailable) return;
   if (!fs.existsSync(SCRIPT)) {
     if (!unavailable) log('desktop-keep.ps1 不存在，Z 序守护停用');
@@ -136,11 +142,12 @@ function stop() {
 
 function status() {
   return {
+    supported: SUPPORTED,
     running: isRunning(),
     pid: child ? child.pid : null,
     handlesFile,
     lastWritten: lastWritten || '',
-    logPath: path.join(process.env.TEMP || '', 'tally-keep.log'),
+    logPath: path.join(process.env.TEMP || process.env.TMPDIR || '', 'tally-keep.log'),
   };
 }
 

@@ -15,7 +15,9 @@
     "icons": "node scripts/make-icons.mjs",
     "portable": "node scripts/build-portable.mjs",
     "portable:full": "node scripts/build-portable.mjs --full",
-    "share": "node scripts/build-portable.mjs --share"
+    "share": "node scripts/build-portable.mjs --share",
+    "mac": "node scripts/build-mac.mjs",
+    "mac:share": "node scripts/build-mac.mjs --share"
   },
   "dependencies": {
     "react": "^19.3.0",

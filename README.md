@@ -89,6 +89,42 @@ npm run portable:full   # 强制重装 Electron 运行时
 > ⚠️ 写 PE 资源会破坏 Electron 官方 exe 的数字签名，首次运行可能弹 SmartScreen
 > （「更多信息」→「仍要运行」），同机器之后不再提示。
 
+### 打包 macOS 版
+
+必须在 **macOS 上**执行（打包要往 `.app` 里塞运行时、改 Info.plist、做签名，Windows 上做不了）：
+
+```bash
+npm ci
+npm run build           # 先构建渲染层
+npm run mac             # 自用版 → release/mac/Tally.app + release/Tally-v<版本>-mac.zip
+npm run mac:share       # 分发版 → release/mac-share/Tally.app + release/Tally-v<版本>-share-mac.zip
+```
+
+`scripts/build-mac.mjs` 做的事：
+
+- 复制 `node_modules/electron/dist/Electron.app` → `Tally.app`，改写 `Info.plist`
+  （`CFBundleIdentifier` / `CFBundleName` / `CFBundleShortVersionString` / 图标 / 最低系统版本）
+- 把 `dist/`、`electron/`、`package.json` 塞进 `Contents/Resources/app/`
+- 换 `Contents/Resources/icon.icns`（由 `npm run icons` 生成）
+- **ad-hoc 签名**（`codesign --force --deep --sign -`）：未做 Apple 开发者签名，
+  首次打开需右键 →「打开」，或 `xattr -dr com.apple.quarantine /path/to/Tally.app`
+- 打 zip 便于分发（`ditto -c -k --sequesterRsrc --keepParent`，保留符号链接与资源分支）
+
+macOS 上的行为差异（由 `electron/services/platform.cjs` 集中处理）：
+
+| 项目 | Windows | macOS |
+|---|---|---|
+| 数据目录 | 程序目录旁 `data/` | `.app` 同级有 `data/` 则认便携，否则 `~/Library/Application Support/Tally`（`.app` 只读，写进去会破坏签名） |
+| 置顶层级 | `screen-saver`（能压住任务栏） | `floating`（盖普通窗口，但不压全屏应用和系统 UI） |
+| 贴桌面 | 原生桌面层（PowerShell 守护 Z 序） | 普通层级 + 常驻所有 Space（mac 无等价的公开桌面层） |
+| 常驻入口 | 任务栏托盘（彩色 PNG） | 菜单栏（`trayTemplate.png`，深浅色自动反色），Dock 图标隐藏 |
+| 开机自启 | `HKCU\...\Run` 注册表 | `SMAppService` 登录项（未签名/不在 /Applications 时需用户在系统设置里允许） |
+| 退出 | 托盘菜单「退出」 | 菜单栏「退出」或 `Cmd+Q` |
+
+> 注意：Windows 版有 `wb-recover.local.cjs` 用来解密客户端登录态做兜底，
+> 分发版会剥掉它；macOS 版**本来就没有这个能力**，登录一律走官方网页登录，
+> 功能不受影响。
+
 ### 图标与 exe 资源
 
 ```bash

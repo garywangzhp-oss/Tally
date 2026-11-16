@@ -8,19 +8,29 @@ const commandcode = require('./services/commandcode.cjs');
 const workbuddy = require('./services/workbuddy.cjs');
 const wbLogin = require('./services/wb-login.cjs');
 const desktopKeeper = require('./services/desktop-keeper.cjs');
+const platform = require('./services/platform.cjs');
 
 // 本机 GPU 子进程缺 DLL、Chromium 渲染沙箱也初始化失败（渲染进程报 0xC0000135 -> 白屏）。
 // 完整规避配方：angle + swiftshader + in-process-gpu + 关闭 GPU 沙箱与全局沙箱。
-app.commandLine.appendSwitch('use-gl', 'angle');
-app.commandLine.appendSwitch('use-angle', 'swiftshader');
-app.commandLine.appendSwitch('in-process-gpu');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('no-sandbox');
+// ⚠️ 只对 Windows 生效：macOS 上金属渲染本来正常，no-sandbox / in-process-gpu 反而会让
+//    GPU 进程退化甚至起不来（Apple Silicon 上尤其明显）。两个平台共用同一份源码，
+//    所以这里必须按平台分流，而不是照搬。
+if (platform.IS_WIN) {
+  app.commandLine.appendSwitch('use-gl', 'angle');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('in-process-gpu');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('no-sandbox');
+}
 
-// 绿色版：把 userData 也重定向到程序目录，避免往 %APPDATA% 里塞缓存（拔走目录即无痕）
+// 绿色版：把 userData 也重定向到程序目录，避免往 %APPDATA% 里塞缓存（拔走目录即无痕）。
+// macOS 的 .app 是只读包（写进去会破坏签名），所以那边只认「.app 同级已有 data/」的
+// 便携形态，否则落 ~/Library/Application Support/Tally —— 判定全在 platform.resolvePaths()。
 if (app.isPackaged) {
   try {
-    app.setPath('userData', path.join(path.dirname(app.getPath('exe')), 'data', 'userdata'));
+    if (platform.shouldRelocateUserData()) {
+      app.setPath('userData', platform.resolvePaths().userDataDir);
+    }
   } catch (err) {
     console.error('[tally] setPath(userData) 失败', err);
   }
@@ -65,8 +75,8 @@ let scaleDrag = null;
 function resolveDataDir() {
   // TALLY_DATA_DIR 可覆盖数据目录：用于自检时隔离配置、或同一份程序跑多套数据
   if (process.env.TALLY_DATA_DIR) return process.env.TALLY_DATA_DIR;
-  const root = app.isPackaged ? path.dirname(app.getPath('exe')) : __dirname + path.sep + '..';
-  return path.join(root, 'data');
+  // 平台差异（Windows 程序目录旁 / mac 便携或 Application Support）见 platform.cjs
+  return platform.resolvePaths().dataDir;
 }
 
 function resolveStore() {
@@ -110,7 +120,7 @@ function resolveIndex() {
 // Windows 还会把置顶悄悄重置：切换显示器、副屏重连、分辨率变化、UAC 弹窗、
 // 全屏程序退出都会让 Z 序重排，窗口就"掉"回普通层。所以置顶不设一次就算完，
 // 统一走 applyAlwaysOnTop()，并在几个关键时机重放一遍。
-const TOP_LEVEL = 'screen-saver';
+const TOP_LEVEL = platform.topLevel();
 
 // 把「当前应当可见的窗口」同步给 Z 序守护。
 //
@@ -144,6 +154,23 @@ function topLog(msg) {
 
 function applyAlwaysOnTop(on) {
   if (!win || win.isDestroyed()) return;
+
+  // ---------- macOS ----------
+  // 没有「桌面层」这回事：贴桌面 = 普通层级 + 所有 Space 常驻，置顶 = floating。
+  // 也不用担心 HWND_NOTOPMOST 那个坑（Windows 专有行为），mac 上 setAlwaysOnTop(false)
+  // 只是老老实实回落一级。
+  if (platform.IS_MAC) {
+    if (on) {
+      win.setAlwaysOnTop(true, TOP_LEVEL); // floating：盖普通窗口，不盖全屏/系统 UI
+      win.moveTop();
+    } else if (win.isAlwaysOnTop()) {
+      win.setAlwaysOnTop(false);
+    }
+    platform.stickToAllSpaces(win);
+    topLog(`apply -> ${on ? `on(${TOP_LEVEL})` : 'off'} mac spaces=all`);
+    return;
+  }
+
   if (!on) {
     // ⚠️ 贴桌面模式下不要无脑调 setAlwaysOnTop(false)：它底层走 HWND_NOTOPMOST，
     // 而 Windows 把 HWND_NOTOPMOST 解释成「移到所有非置顶窗口之上」—— 对一个本来就
@@ -279,62 +306,96 @@ function stopScaleDrag() {
 
 // ---------- 开机自启 ----------
 //
-// 走 Electron 的 app.setLoginItemSettings()。Windows 上它写的是
-// HKCU\Software\Microsoft\Windows\CurrentVersion\Run 里一条以程序名为键的值，内容指向
-// **Tally.exe 的绝对路径**。所以绿色版有个固有约束：**把程序目录挪了位置，这条就会失效**，
-// 需要在设置里把开关关掉再打开一次来重建 —— 界面上有写。
+// 两个平台各有一套机制，实现在 platform.cjs：
+//   · Windows — app.setLoginItemSettings() 写 HKCU\...\CurrentVersion\Run 里一条以程序名为
+//     键的值，内容指向 **Tally.exe 的绝对路径**。所以绿色版有个固有约束：**把程序目录
+//     挪了位置，这条就会失效**，需要在设置里把开关关掉再打开一次来重建 —— 界面上有写。
+//   · macOS — 走 SMAppService 登记登录项，**要求 app 已签名**（通常还要求在
+//     /Applications 下）。登记成功但用户没在「系统设置 → 通用 → 登录项」里允许时
+//     状态是 requires-approval，这时只能提示、不能报失败。
 //
-// 只在打包版真正写注册表。开发模式下 process.execPath 是 node_modules 里的 electron.exe，
-// 注册它毫无意义还会在用户注册表里留垃圾，所以那种情况直接返回失败，UI 会跟着回弹。
+// 只在打包版真正写。开发模式下 process.execPath 是 node_modules 里的 electron
+// （或 Electron.app），登记它毫无意义还会在用户系统里留垃圾，所以直接返回失败，UI 会跟着回弹。
 //
-// 注册表是事实来源：用户可能在任务管理器「启动」页里把这条禁用掉，
+// 系统设置是事实来源：用户可能在任务管理器「启动」页 / macOS 登录项列表里把这条禁用掉，
 // 光看配置里的布尔值会撒谎，所以启动时会拿实际状态对齐一次配置。
 function autoStartTarget() {
   return process.execPath;
 }
 
 function readAutoStart() {
-  try {
-    return Boolean(app.getLoginItemSettings({ path: autoStartTarget() }).openAtLogin);
-  } catch {
-    return false;
-  }
+  return platform.readAutoStart();
 }
 
 function applyAutoStart(on) {
   if (!app.isPackaged) {
-    return { ok: false, reason: 'dev', message: '开发模式下不会写注册表，打包版才生效' };
+    return {
+      ok: false,
+      reason: 'dev',
+      message: platform.IS_MAC
+        ? '开发模式下不会登记登录项，打包版才生效'
+        : '开发模式下不会写注册表，打包版才生效',
+    };
   }
   try {
-    app.setLoginItemSettings({ openAtLogin: Boolean(on), path: autoStartTarget(), args: [] });
-    return { ok: true, actual: readAutoStart(), message: '' };
+    const r = platform.writeAutoStart(on);
+    // macOS 13+：已登记但等用户在系统设置里点头，不能当成失败
+    if (r.pending) {
+      return {
+        ok: true,
+        actual: r.actual,
+        message: '已登记。还需要在「系统设置 → 通用 → 登录项」里允许 Tally。',
+      };
+    }
+    if (r.actual !== Boolean(on)) {
+      return {
+        ok: false,
+        reason: 'blocked',
+        message: platform.IS_MAC
+          ? 'macOS 没有接受这条登录项（未签名、或 .app 不在 /Applications 时会被拒）。可以手动在「系统设置 → 通用 → 登录项」里添加。'
+          : '写入未生效，可能被安全软件拦住了',
+      };
+    }
+    return { ok: true, actual: r.actual, message: '' };
   } catch (err) {
-    return { ok: false, reason: 'error', message: `写注册表失败：${err?.message || err}` };
+    return {
+      ok: false,
+      reason: 'error',
+      message: `${platform.IS_MAC ? '登记登录项' : '写注册表'}失败：${err?.message || err}`,
+    };
   }
 }
 
-// ---------- 托盘 ----------
+// ---------- 托盘 / 菜单栏 ----------
 // 小组件常驻桌面，点关闭默认收进托盘而不是退出；托盘图标是「隐藏后怎么找回来」的唯一入口，
 // 所以它必须先于窗口可用，且在任何情况下都不能创建失败导致窗口收不回来。
-const TRAY_ICON_32 = path.join(__dirname, 'assets', 'tray-32.png');
-const TRAY_ICON_16 = path.join(__dirname, 'assets', 'tray-16.png');
+//
+// 图标按平台挑（见 platform.trayIconPaths）：
+//   · Windows 任务栏通知区 —— 彩色 PNG，另补一张 1x 表示避免高 DPI 缩放发虚
+//   · macOS 菜单栏 —— template 图（纯黑 + alpha），系统按菜单栏明暗自动反色
+const TRAY_ICONS = platform.trayIconPaths();
 
-// 窗口 / 任务栏 / Alt-Tab 图标走多尺寸 ICO：Chromium 和系统会按 DPI 自己挑最合适的一档，
-// 比只塞一张 PNG 再让系统缩放清楚得多。全部由 scripts/make-icons.mjs 生成。
-const APP_ICON_ICO = path.join(__dirname, 'assets', 'icon.ico');
-const APP_ICON_PNG = path.join(__dirname, 'assets', 'app-256.png');
-const APP_ICON = fs.existsSync(APP_ICON_ICO) ? APP_ICON_ICO : APP_ICON_PNG;
+// Windows 的窗口 / 任务栏 / Alt-Tab 图标走多尺寸 ICO：Chromium 和系统会按 DPI 自己挑
+// 最合适的一档。macOS 的图标来自 .app 包里的 icns（打包脚本写入 Info.plist），这里给 PNG 兜底。
+const APP_ICON = platform.appIconPath();
 
 function loadTrayImage() {
   try {
-    const img = nativeImage.createFromPath(TRAY_ICON_32);
+    const img = nativeImage.createFromPath(TRAY_ICONS.main);
     if (img.isEmpty()) return null;
+    if (platform.IS_MAC) {
+      // 文件名带 Template 已经能识别，再显式标一次：打包后路径变化时也不会丢
+      img.setTemplateImage(true);
+      return img;
+    }
     // 补一份 1x 表示，100% 缩放下才是像素对齐的，不会被系统缩放出毛边
-    try {
-      const small = fs.readFileSync(TRAY_ICON_16);
-      img.addRepresentation({ scaleFactor: 1, width: 16, height: 16, buffer: small });
-    } catch {
-      /* 没有 16px 版本也能用，只是高 DPI 下由系统缩放 */
+    if (TRAY_ICONS.small) {
+      try {
+        const small = fs.readFileSync(TRAY_ICONS.small);
+        img.addRepresentation({ scaleFactor: 1, width: 16, height: 16, buffer: small });
+      } catch {
+        /* 没有 16px 版本也能用，只是高 DPI 下由系统缩放 */
+      }
     }
     return img;
   } catch {
@@ -412,8 +473,14 @@ function createTray() {
   tray = new Tray(image);
   tray.setToolTip(trayTip);
   tray.setContextMenu(buildTrayMenu());
-  // 左键单击：显示/隐藏。双击在部分 Windows 版本上也会触发单击，这里不额外处理双击。
-  tray.on('click', () => togglePanel());
+  if (platform.IS_MAC) {
+    // macOS：设了 contextMenu 之后，点击图标由系统直接弹菜单，再绑 click 会让
+    // 「弹菜单」和「切换面板」两个动作打架。双击也别当两次单击处理。
+    tray.setIgnoreDoubleClickEvents(true);
+  } else {
+    // 左键单击：显示/隐藏。双击在部分 Windows 版本上也会触发单击，这里不额外处理双击。
+    tray.on('click', () => togglePanel());
+  }
   return tray;
 }
 
@@ -460,13 +527,16 @@ function createWindow() {
     maximizable: false,
     minimizable: true,
     fullscreenable: false,
-    skipTaskbar: true,
+    // Windows：不进任务栏。macOS 没有任务栏按钮这回事，靠 app.dock.hide() 隐去 Dock 图标
+    skipTaskbar: !platform.IS_MAC,
     hasShadow: false,
     show: false,
     backgroundColor: '#00000000',
     alwaysOnTop: Boolean(cfg.alwaysOnTop),
     title: 'Tally',
-    icon: APP_ICON,
+    icon: APP_ICON || undefined,
+    // mac 专有：acceptFirstMouse（未激活时第一下点击就生效）、roundedCorners（圆角交给 CSS）
+    ...platform.windowExtras(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -566,6 +636,24 @@ function createWindow() {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // macOS：Dock 图标已隐藏、也没有应用菜单栏，Cmd+Q / Cmd+W 不会自动生效。
+  // 窗口聚焦时手动接一下 —— 否则 mac 用户唯一的退出路径只剩菜单栏图标那一下，太反直觉。
+  // （Cmd+W = 关窗口，走 close 事件 → 收进菜单栏，与点右上角的行为一致）
+  if (platform.IS_MAC) {
+    win.webContents.on('before-input-event', (e, input) => {
+      if (input.type !== 'keyDown' || !input.meta || input.control || input.alt) return;
+      const key = String(input.key || '').toLowerCase();
+      if (key === 'q') {
+        e.preventDefault();
+        isQuitting = true;
+        app.quit();
+      } else if (key === 'w') {
+        e.preventDefault();
+        if (win && !win.isDestroyed()) win.close();
+      }
+    });
+  }
 
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error('[tally] render-process-gone', JSON.stringify(details));
@@ -729,12 +817,17 @@ function createWindow() {
 
   // TALLY_ICON_TEST=1：无头验证图标资产能被 Chromium 正确解码（ICO 是否真的多尺寸、
   // 各档 PNG 是否齐全）。图标本身在这台机器上肉眼看不到（窗口无边框 + skipTaskbar），
-  // 只能靠这条钩子断言「文件是好的」。
+  // 只能靠这条钩子断言「文件是好的」。两个平台共用，缺哪套资产会直接看出来。
   if (process.env.TALLY_ICON_TEST === '1') {
     app.whenReady().then(() => {
-      const ico = nativeImage.createFromPath(APP_ICON_ICO);
-      console.log('[icon-test] using:', path.basename(APP_ICON));
-      console.log(`[icon-test] icon.ico empty=${ico.isEmpty()} size=${JSON.stringify(ico.getSize())}`);
+      console.log('[icon-test] using:', APP_ICON ? path.basename(APP_ICON) : '(none)');
+      const icoPath = path.join(__dirname, 'assets', 'icon.ico');
+      if (fs.existsSync(icoPath)) {
+        const ico = nativeImage.createFromPath(icoPath);
+        console.log(`[icon-test] icon.ico empty=${ico.isEmpty()} size=${JSON.stringify(ico.getSize())}`);
+      } else {
+        console.log('[icon-test] icon.ico 不存在（macOS 用 .app 内的 icns，正常）');
+      }
       for (const s of [16, 24, 32, 48, 64, 128, 256]) {
         const p = path.join(__dirname, 'assets', `app-${s}.png`);
         const im = fs.existsSync(p) ? nativeImage.createFromPath(p) : null;
@@ -743,9 +836,12 @@ function createWindow() {
             `size=${im ? JSON.stringify(im.getSize()) : '-'}`
         );
       }
-      for (const s of [16, 32]) {
-        const im = nativeImage.createFromPath(path.join(__dirname, 'assets', `tray-${s}.png`));
-        console.log(`[icon-test] tray-${s}.png empty=${im.isEmpty()} size=${JSON.stringify(im.getSize())}`);
+      for (const p of [TRAY_ICONS.main, TRAY_ICONS.small].filter(Boolean)) {
+        const im = nativeImage.createFromPath(p);
+        console.log(
+          `[icon-test] ${path.basename(p)} empty=${im.isEmpty()} ` +
+            `size=${JSON.stringify(im.getSize())} template=${platform.IS_MAC}`
+        );
       }
       const trayImg = loadTrayImage();
       console.log(`[icon-test] loadTrayImage -> ${trayImg ? 'ok' : 'null'}`);
@@ -756,7 +852,9 @@ function createWindow() {
   // TALLY_EXEICON_TEST=1：提取 exe 自身的「文件图标」（走 Windows shell 的 app.getFileIcon），
   // 落盘成 PNG。打包脚本往 PE 资源里写了图标，但只有这一步能证明「资源管理器里真的会显示它」。
   // 同时测一份临时副本 —— shell 的图标缓存是按路径缓存的，副本能绕开缓存、看到当前内容。
-  if (process.env.TALLY_EXEICON_TEST === '1') {
+  // ⚠️ 只在 Windows 有意义：macOS 的文件图标来自 .app 的 icns + LaunchServices 缓存，
+  //    同一条断言搬到 mac 上会得出错误结论。
+  if (platform.IS_WIN && process.env.TALLY_EXEICON_TEST === '1') {
     app.whenReady().then(async () => {
       const os = require('node:os');
       const outDir = process.env.TALLY_EXEICON_OUT || path.join(__dirname, '..', 'snapshots');
@@ -1085,6 +1183,10 @@ function registerIpc() {
     tokenPath: workbuddy.tokenFilePath(),
     electron: process.versions.electron,
     packaged: app.isPackaged,
+    // 渲染层用来选文案：mac 上叫「菜单栏」，Windows 上叫「托盘」
+    platform: process.platform,
+    isMac: platform.IS_MAC,
+    dataDir: resolveDataDir(),
   }));
 }
 
@@ -1098,6 +1200,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    // macOS：把 app 变成「配件应用」—— Dock 与 Cmd+Tab 里都不出现，只留菜单栏图标，
+    // 与 Windows 隐藏任务栏按钮是同一个意图（小组件不该占着应用切换器）。
+    // 必须在建窗口之前调用，否则 Dock 图标会先亮一下再消失。
+    if (platform.IS_MAC) platform.hideDock();
+
     store = resolveStore();
     // WorkBuddy 凭据自持：客户端新版把登录态加密后我们读不到 token，改成拿 refreshToken
     // 自己去 /v2/plugin/auth/token/refresh 续期（见 workbuddy.cjs 顶部说明）。
@@ -1207,6 +1314,7 @@ if (!gotLock) {
 
   // 关机 / 注销：Windows 直接发 session-end，不一定经过 before-quit。
   // 不接这个的话 close 事件里的 preventDefault 会把系统关机卡住。
+  // （macOS 没有这个事件，走的是正常的 before-quit —— 监听它无害。）
   app.on('session-end', () => {
     isQuitting = true;
   });

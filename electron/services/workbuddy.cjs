@@ -447,6 +447,13 @@ function envRoots() {
   const push = (p) => {
     if (p && !out.includes(p)) out.push(p);
   };
+  if (process.platform === 'darwin') {
+    // macOS：客户端数据在 ~/Library/Application Support 下。
+    // ⚠️ 这条只是**兜底**（找客户端遗留的明文登录态）；1.3.0 起 Tally 主路径是自己走
+    //    官方网页登录，所以 mac 上就算这里全 miss 也不影响签到。
+    push(path.join(home, 'Library', 'Application Support'));
+    return out;
+  }
   push(process.env.LOCALAPPDATA);
   push(process.env.APPDATA);
   push(path.join(home, 'AppData', 'Local'));

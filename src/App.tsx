@@ -404,7 +404,13 @@ export default function App() {
         </button>
         <button
           className="icon-btn close"
-          title={config.closeToTray ? '关闭到托盘（托盘菜单可退出）' : '退出'}
+          title={
+            config.closeToTray
+              ? info?.isMac
+                ? '关闭到菜单栏（菜单栏图标可退出）'
+                : '关闭到托盘（托盘菜单可退出）'
+              : '退出'
+          }
           onClick={() => (config.closeToTray ? window.tally.close() : window.tally.quit())}
         >
           {ICON_CLOSE}

@@ -137,9 +137,12 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
       ? Boolean(keyDraft.trim())
       : Boolean(active) && (keyDraft.trim() !== active.apiKey || nameDraft.trim() !== active.name);
 
-  // 开机自启写注册表可能失败（开发模式 / 权限被拒），主进程会把原因带回来，
+  // 开机自启写系统设置可能失败（开发模式 / 权限被拒），主进程会把原因带回来，
   // 就近显示在这一行下面 —— 复用到账号区的 flash 离得太远，用户看不到。
   const [autoNote, setAutoNote] = useState<{ text: string; bad: boolean } | null>(null);
+
+  // mac 上没有「托盘」，是菜单栏；文案跟着平台走，别让 mac 用户去找右下的通知区域
+  const isMac = Boolean(info?.isMac);
 
   const toggleAutoStart = async () => {
     const wasOn = config.autoStart;
@@ -370,15 +373,19 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
       </div>
       <div className="hint" style={{ marginTop: -2 }}>
         {config.alwaysOnTop
-          ? '面板会一直压在最前面，连文件夹、浏览器、任务栏都盖住 —— 确认要随时瞟一眼再开。'
-          : '面板贴在桌面上：始终待在所有程序窗口之下，打开文件夹、浏览器、微信都会被它们盖住。就算你点过或拖动过面板，它也会立刻自己沉回去，不会一直压着别的窗口。'}
+          ? isMac
+            ? '面板会浮在普通窗口之上（全屏应用和系统面板仍会盖住它）—— 确认要随时瞟一眼再开。'
+            : '面板会一直压在最前面，连文件夹、浏览器、任务栏都盖住 —— 确认要随时瞟一眼再开。'
+          : isMac
+            ? '面板走正常层级：会被前台应用盖住，和普通窗口一样。它在所有桌面空间（Space）上都可见，切桌面不会丢。'
+            : '面板贴在桌面上：始终待在所有程序窗口之下，打开文件夹、浏览器、微信都会被它们盖住。就算你点过或拖动过面板，它也会立刻自己沉回去，不会一直压着别的窗口。'}
       </div>
       <div className="row-between">
         <span>启动时自动领取积分</span>
         <Toggle on={config.autoCheckin} onClick={() => onSave({ autoCheckin: !config.autoCheckin })} />
       </div>
       <div className="row-between">
-        <span>关闭窗口时最小化到托盘</span>
+        <span>{isMac ? '关闭窗口时收进菜单栏' : '关闭窗口时最小化到托盘'}</span>
         <Toggle
           on={config.closeToTray}
           onClick={() => onSave({ closeToTray: !config.closeToTray })}
@@ -386,8 +393,9 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
       </div>
       {config.closeToTray && (
         <div className="hint" style={{ marginTop: -2 }}>
-          点右上角 × 只会把面板收进托盘，程序继续在后台运行。想真正退出：右键托盘图标 →
-          「退出 Tally」。
+          {isMac
+            ? '点右上角 × 只会把面板收进菜单栏，程序继续在后台运行。想真正退出：点菜单栏图标 →「退出 Tally」，或按 ⌘Q。'
+            : '点右上角 × 只会把面板收进托盘，程序继续在后台运行。想真正退出：右键托盘图标 →「退出 Tally」。'}
         </div>
       )}
       <div className="row-between">
@@ -396,8 +404,12 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
       </div>
       <div className="hint" style={{ marginTop: -2 }}>
         {config.autoStart
-          ? '开机会自动把面板放回你上次的位置。想彻底关掉：关掉这个开关，或在任务管理器「启动」页里禁用它。'
-          : '登录 Windows 后自动启动 Tally，省去手动双击。绿色版挪了目录的话，把开关关掉再打开一次即可重建。'}
+          ? isMac
+            ? '开机会自动把面板放回你上次的位置。想彻底关掉：关掉这个开关，或在「系统设置 → 通用 → 登录项」里禁用它。'
+            : '开机会自动把面板放回你上次的位置。想彻底关掉：关掉这个开关，或在任务管理器「启动」页里禁用它。'
+          : isMac
+            ? '登录 macOS 后自动启动 Tally。首次开启时，macOS 可能要求你在「系统设置 → 通用 → 登录项」里允许它。'
+            : '登录 Windows 后自动启动 Tally，省去手动双击。绿色版挪了目录的话，把开关关掉再打开一次即可重建。'}
       </div>
       {autoNote && (
         <div
@@ -445,7 +457,7 @@ export default function SettingsSection({ config, info, onSave, onBack }: Props)
           <div className="hint" style={{ marginTop: 6 }}>
             凭据剩余 {wb.expiresInDays} 天
             {wb.refreshInDays != null ? `，可续期 ${wb.refreshInDays} 天` : ''}
-            ；打开 WorkBuddy 客户端会自动续期，长期不开会失效。
+            ；到期前 Tally 会自己续期，不用打开客户端。
           </div>
         )}
       </div>

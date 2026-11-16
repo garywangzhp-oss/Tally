@@ -295,6 +295,11 @@ export interface AppInfo {
   tokenPath: string;
   electron: string;
   packaged: boolean;
+  /** 'win32' | 'darwin' —— 界面文案要按平台说「托盘」还是「菜单栏」 */
+  platform: string;
+  isMac: boolean;
+  /** 当前生效的数据目录（mac 上可能是 ~/Library/Application Support/Tally） */
+  dataDir: string;
 }
 
 export interface TallyBridge {

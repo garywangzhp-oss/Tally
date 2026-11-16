@@ -125,6 +125,38 @@ function encodeICO(entries) {
   return Buffer.concat([header, dir, ...entries.map((e) => e.data)]);
 }
 
+// ---------------------------------------------------------------- ICNS 编码
+// macOS 的 .icns 就是一个容器：'icns' + 总长度 + 若干 [4字节类型][4字节长度][PNG 数据]。
+// 10.7 起所有尺寸都能直接塞 PNG，不需要老的 ARGB/is32 格式。
+// 类型 → 像素尺寸（@2x 也要各写一份，系统会按屏幕倍率自己挑）：
+//   ic11=16@2x(32)  ic12=32@2x(64)  ic07=128  ic13=128@2x(256)
+//   ic08=256        ic14=256@2x(512) ic09=512
+// ⚠️ 不写 ic10(512@2x=1024)：那必须是真的 1024 像素图，拿 512 放大塞进去系统会当成坏图。
+const ICNS_TYPES = [
+  { type: 'ic11', size: 32 },
+  { type: 'ic12', size: 64 },
+  { type: 'ic07', size: 128 },
+  { type: 'ic13', size: 256 },
+  { type: 'ic08', size: 256 },
+  { type: 'ic14', size: 512 },
+  { type: 'ic09', size: 512 },
+];
+
+function encodeICNS(pngBySize) {
+  const chunks = ICNS_TYPES.map(({ type, size }) => {
+    const data = pngBySize[size];
+    const head = Buffer.alloc(8);
+    head.write(type, 0, 4, 'ascii');
+    head.writeUInt32BE(data.length + 8, 4);
+    return Buffer.concat([head, data]);
+  });
+  const body = Buffer.concat(chunks);
+  const head = Buffer.alloc(8);
+  head.write('icns', 0, 4, 'ascii');
+  head.writeUInt32BE(body.length + 8, 4);
+  return Buffer.concat([head, body]);
+}
+
 // ---------------------------------------------------------------- 几何
 const DESIGN = 32;
 
@@ -474,8 +506,10 @@ function renderVariant(name, size, opts = {}) {
   return out;
 }
 
-// 托盘图标：只画 logo 本身（不带底板），单色扁平
-function renderTrayMark(name, size) {
+// 托盘图标：只画 logo 本身（不带底板），单色扁平。
+// color 默认是品牌蓝（Windows 通知区）；macOS 菜单栏要传纯黑 —— template 图只认 alpha，
+// 颜色由系统按菜单栏明暗自适应，见下面的 trayTemplate.png。
+function renderTrayMark(name, size, color = ACCENT) {
   const v = VARIANTS[name];
   const scale = DESIGN / size;
   const ss = size <= 32 ? 8 : 4;
@@ -484,18 +518,18 @@ function renderTrayMark(name, size) {
   const pg = new Float32Array(n);
   const pb = new Float32Array(n);
   const pa = new Float32Array(n);
-  const over = (i, color, alpha) => {
+  const over = (i, c, alpha) => {
     const a = Math.min(1, alpha);
     const ia = 1 - a;
-    pr[i] = color[0] * a + pr[i] * ia;
-    pg[i] = color[1] * a + pg[i] * ia;
-    pb[i] = color[2] * a + pb[i] * ia;
+    pr[i] = c[0] * a + pr[i] * ia;
+    pg[i] = c[1] * a + pg[i] * ia;
+    pb[i] = c[2] * a + pb[i] * ia;
     pa[i] = a + pa[i] * ia;
   };
   for (const m of v.marks) {
     const cov = coverage(m.f, size, scale, ss);
     const a0 = m.alpha == null ? 1 : m.alpha;
-    for (let i = 0; i < n; i++) if (cov[i] > 0) over(i, ACCENT, cov[i] * a0);
+    for (let i = 0; i < n; i++) if (cov[i] > 0) over(i, color, cov[i] * a0);
   }
   const out = Buffer.alloc(n * 4);
   for (let i = 0; i < n; i++) {
@@ -660,6 +694,28 @@ for (const s of [16, 32]) {
   fs.writeFileSync(path.join(ASSETS, `tray-${s}.png`), encodePNG(s, s, renderTrayMark(active, s)));
 }
 console.log('· electron/assets/tray-{16,32}.png（纯 logo，无底板）');
+
+// c2) macOS 用：菜单栏 template 图（纯黑，只靠 alpha 出形状）+ .app 的 icns
+//     文件名里的 Template 是给系统的信号：颜色由菜单栏明暗决定，不要自己上色。
+const BLACK = [0, 0, 0];
+for (const [file, size] of [
+  ['trayTemplate.png', 16],
+  ['trayTemplate@2x.png', 32],
+]) {
+  fs.writeFileSync(path.join(ASSETS, file), encodePNG(size, size, renderTrayMark(active, size, BLACK)));
+}
+console.log('· electron/assets/trayTemplate{,@2x}.png（macOS 菜单栏，纯黑 template）');
+
+const icnsPngs = {};
+for (const { size } of ICNS_TYPES) {
+  if (icnsPngs[size]) continue;
+  if (!renders[active][size]) renders[active][size] = renderVariant(active, size);
+  icnsPngs[size] = encodePNG(size, size, renders[active][size]);
+}
+fs.writeFileSync(path.join(ASSETS, 'icon.icns'), encodeICNS(icnsPngs));
+console.log(
+  `· electron/assets/icon.icns（${[...new Set(ICNS_TYPES.map((t) => t.size))].sort((a, b) => a - b).join('/')}）`
+);
 
 // d) 对照图 + 像素级放大图
 const sheet = makeContactSheet(renders, Object.keys(VARIANTS));
