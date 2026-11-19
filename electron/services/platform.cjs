@@ -13,12 +13,9 @@
 //      时会被塞进一个 /Applications/data。
 //
 //   2. 窗口层级
-//      Windows 有真正的「桌面层」（desktop-keep.ps1 用 SetWindowPos 实现）。
-//      macOS 没有等价的公开层级（想贴桌面背景层要写 native addon 设
-//      kCGDesktopWindowLevel，代价太大），所以：
-//        · 贴桌面 = 普通层级 + 在所有 Space 上常驻（mac 用户对桌面小组件的预期）
-//        · 置顶   = floating 层（盖住普通窗口，但**不**盖全屏应用和系统 UI —— 用
-//                   screen-saver 会连屏保/通知中心一起压住，太霸道）
+//      Windows 由 desktop-keep.ps1 主动维护桌面 Z 序。
+//      macOS 参考 Gold Monitor：使用 NSPanel（Electron type='panel'），默认 normal
+//      层，置顶时切到 floating；常驻所有 Space，并作为全屏辅助窗口保留。
 //
 //   3. 托盘
 //      Windows 是任务栏通知区，彩色 PNG 即可。
@@ -32,6 +29,16 @@ const { app } = require('electron');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
+
+// 手工组装 Electron.app 时，Electron 44 的 app.isPackaged 会误判为 false。
+// 这里额外识别「代码确实位于 .app/Contents/Resources/app」的正式包，
+// 避免把配置写进只读 .app 内部，并确保开机自启等仅打包版功能正常。
+const IS_BUNDLED_MAC =
+  IS_MAC &&
+  !process.defaultApp &&
+  /\.app[\\/]Contents[\\/]MacOS[\\/][^\\/]+$/.test(process.execPath) &&
+  path.resolve(app.getAppPath()).startsWith(path.join(process.resourcesPath, 'app'));
+const IS_PACKAGED = Boolean(app.isPackaged || IS_BUNDLED_MAC);
 
 // 与 package.json 的 productName 保持一致；mac 上它同时是 ~/Library/Application Support 下的目录名
 const PRODUCT = 'Tally';
@@ -55,6 +62,33 @@ function bundleRoot() {
 }
 
 let cachedPaths = null;
+let macWindowNative = null;
+let macWindowNativeLoaded = false;
+
+function loadMacWindowNative() {
+  if (!IS_MAC) return null;
+  if (macWindowNativeLoaded) return macWindowNative;
+  macWindowNativeLoaded = true;
+  try {
+    macWindowNative = require(path.join(__dirname, '..', 'native', 'tally-window.node'));
+  } catch (err) {
+    console.warn('[tally] macOS 原生窗口行为补丁未加载', err?.message || err);
+  }
+  return macWindowNative;
+}
+
+/** 补上 Electron 未公开的 .stationary：触发角/显示桌面时不收起组件。 */
+function applyWidgetCollectionBehavior(win, floating = false) {
+  if (!IS_MAC || !win || win.isDestroyed()) return false;
+  const helper = loadMacWindowNative();
+  if (!helper?.applyWidgetBehavior) return false;
+  try {
+    return helper.applyWidgetBehavior(win.getNativeWindowHandle(), Boolean(floating));
+  } catch (err) {
+    console.warn('[tally] 应用 macOS 常驻窗口行为失败', err?.message || err);
+    return false;
+  }
+}
 
 /**
  * 数据目录与 userData。
@@ -77,7 +111,7 @@ function resolvePaths() {
   }
 
   // 开发模式：数据放项目根 data/（与旧版完全一致，别让 dev 把配置写进 node_modules）
-  if (!app.isPackaged) {
+  if (!IS_PACKAGED) {
     const devData = path.resolve(__dirname, '..', '..', 'data');
     cachedPaths = { dataDir: devData, userDataDir: devData, portable: false };
     return cachedPaths;
@@ -95,6 +129,17 @@ function resolvePaths() {
       return cachedPaths;
     }
     const sysDir = path.join(app.getPath('appData'), PRODUCT);
+    // 修复旧手工包把数据写进 .app 的问题：首次启动时把仅有的配置迁到系统目录。
+    try {
+      const legacyConfig = path.join(app.getAppPath(), 'data', 'config.json');
+      const targetConfig = path.join(sysDir, 'config.json');
+      if (!fs.existsSync(targetConfig) && fs.existsSync(legacyConfig)) {
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.copyFileSync(legacyConfig, targetConfig);
+      }
+    } catch (err) {
+      console.error('[tally] 迁移旧 macOS 配置失败', err?.message || err);
+    }
     cachedPaths = { dataDir: sysDir, userDataDir: sysDir, portable: false };
     return cachedPaths;
   }
@@ -120,7 +165,7 @@ function shouldRelocateUserData() {
 
 // ---------- 窗口 ----------
 
-/** BrowserWindow 构造参数里只属于 macOS 的那部分 */
+/** BrowserWindow 构造参数里只属于 macOS 的那部分。 */
 function windowExtras() {
   if (!IS_MAC) return {};
   return {
@@ -128,6 +173,10 @@ function windowExtras() {
     acceptFirstMouse: true,
     // 圆角交给 CSS 画：系统再裁一次会在透明窗口边缘留出方角黑边
     roundedCorners: false,
+    // Gold Monitor 同款：NSPanel 更适合无边框常驻组件；层级随后在 main.cjs 设为 normal/floating。
+    type: 'panel',
+    // 桌面小组件不属于任务切换界面，打开 Mission Control 时不要挤在应用窗口里
+    hiddenInMissionControl: true,
   };
 }
 
@@ -136,16 +185,18 @@ function topLevel() {
   return IS_MAC ? 'floating' : 'screen-saver';
 }
 
-/** 让面板在所有桌面空间（Space）上都可见 —— mac 上这是「贴桌面」最接近的语义 */
-function stickToAllSpaces(win) {
+/** 让面板在所有桌面空间和全屏应用中常驻。 */
+function stickToAllSpaces(win, floating = false) {
   if (!IS_MAC || !win || win.isDestroyed()) return;
   try {
     win.setVisibleOnAllWorkspaces(true, {
-      visibleOnFullScreen: false, // 全屏应用里不冒头，否则会打断看电影/演示
+      visibleOnFullScreen: true, // 与 Gold Monitor 的 fullScreenAuxiliary 一致
       skipTransformProcessType: true,
     });
+    return applyWidgetCollectionBehavior(win, floating);
   } catch (err) {
     console.error('[tally] setVisibleOnAllWorkspaces 失败', err?.message || err);
+    return false;
   }
 }
 
@@ -230,6 +281,7 @@ function writeAutoStart(on) {
 module.exports = {
   IS_MAC,
   IS_WIN,
+  IS_PACKAGED,
   PRODUCT,
   bundleRoot,
   resolvePaths,
@@ -237,6 +289,7 @@ module.exports = {
   windowExtras,
   topLevel,
   stickToAllSpaces,
+  applyWidgetCollectionBehavior,
   hideDock,
   trayIconPaths,
   appIconPath,

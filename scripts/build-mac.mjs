@@ -141,6 +141,49 @@ if (mode === 'share') {
   if (leaked.length) fail(`分发版里仍有本地专用模块，拒绝出包：${leaked.join(', ')}`);
 }
 
+// ---------- 2c. macOS 原生窗口行为补丁 ----------
+// Electron 没有公开 NSWindowCollectionBehaviorStationary；编译一个小型 N-API 模块，
+// 让组件在触发角/显示桌面、Mission Control 和全屏应用切换时保持常驻。
+log('· 编译 macOS 常驻窗口行为补丁…');
+const nativeSource = path.join(root, 'native', 'macos', 'window_behavior.mm');
+const nativeDestDir = path.join(appDir, 'electron', 'native');
+const nativeDest = path.join(nativeDestDir, 'tally-window.node');
+if (!fs.existsSync(nativeSource)) fail('缺少 native/macos/window_behavior.mm');
+const nodeInclude = [
+  process.env.NODE_INCLUDE_DIR,
+  path.resolve(path.dirname(process.execPath), '..', 'include', 'node'),
+  '/opt/homebrew/include/node',
+  '/usr/local/include/node',
+]
+  .filter(Boolean)
+  .find((dir) => fs.existsSync(path.join(dir, 'node_api.h')));
+if (!nodeInclude) {
+  fail('找不到 node_api.h：请安装 Node 头文件，或用 NODE_INCLUDE_DIR 指定 include/node 目录。');
+}
+fs.mkdirSync(nativeDestDir, { recursive: true });
+try {
+  execFileSync(
+    'clang++',
+    [
+      '-x', 'objective-c++',
+      '-std=c++17',
+      '-O2',
+      '-dynamiclib',
+      '-undefined', 'dynamic_lookup',
+      '-arch', process.arch === 'arm64' ? 'arm64' : 'x86_64',
+      '-I', nodeInclude,
+      '-framework', 'Cocoa',
+      nativeSource,
+      '-o', nativeDest,
+    ],
+    { stdio: 'pipe' }
+  );
+} catch (err) {
+  const detail = String(err.stderr || err.message || err).trim().split('\n').slice(-6).join('\n');
+  fail(`macOS 常驻窗口行为补丁编译失败：\n${detail}`);
+}
+log(`· 已写入 ${path.relative(outBase, nativeDest)}`);
+
 // ---------- 3. 图标 ----------
 log('· 写入 .app 图标…');
 const icnsDest = path.join(resources, `${productName}.icns`);

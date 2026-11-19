@@ -274,6 +274,8 @@ export interface TallyConfig {
   activeProfileId: string;
   refreshSeconds: number;
   opacity: number;
+  /** 界面主题：glass = 液态玻璃，classic = 原经典深色界面 */
+  uiTheme: 'glass' | 'classic';
   locked: boolean;
   alwaysOnTop: boolean;
   position: { x: number; y: number } | null;
@@ -329,6 +331,7 @@ export interface TallyBridge {
   openExternal(url: string): Promise<void>;
   getAppInfo(): Promise<AppInfo>;
   setTrayTip(text: string): Promise<void>;
+  setTraySummary(lines: string[]): Promise<void>;
   onTrayClaim(handler: () => void): () => void;
 }
 

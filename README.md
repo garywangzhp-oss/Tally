@@ -1,72 +1,143 @@
-# Tally
+# Tally for macOS
 
-> 桌面常驻小组件：**OpenCode Go 用量** + **commandcode 额度** +
+> 常驻桌面的 macOS 小组件：**OpenCode Go 用量** + **commandcode 额度** +
 > **WorkBuddy 每日积分自动领取**
 
-一个贴在 Windows 桌面上的小面板。默认可视作「桌面小组件」——待在桌面之上、所有应用窗口之下，
-不遮挡任何工作；被点过拖过之后会自动沉回桌面层。整个程序是绿色的，删掉文件夹即卸载干净。
+当前分支只维护 macOS 版。Windows 版位于
+[`main` 分支](https://github.com/garywangzhp-oss/Tally/tree/main)，
+两端使用独立分支与独立 Release 标签，避免安装包和平台说明混在一起。
 
-**[下载最新版 v1.3.1](https://github.com/garywangzhp-oss/Tally/releases/latest)** —— 解压即用，无需安装。
+## 下载
 
-Electron 44 + React 19 + Vite 8 + TypeScript。
+- **macOS v1.4.2（Apple Silicon）**：
+  [Tally-v1.4.2-mac-arm64.dmg](https://github.com/garywangzhp-oss/Tally/releases/download/mac-v1.4.2/Tally-v1.4.2-mac-arm64.dmg)
+- **macOS ZIP 备份**：
+  [Tally-v1.4.2-share-mac.zip](https://github.com/garywangzhp-oss/Tally/releases/download/mac-v1.4.2/Tally-v1.4.2-share-mac.zip)
+- **Windows 版**：
+  [前往 Windows 发布页](https://github.com/garywangzhp-oss/Tally/releases/latest)
 
----
+> 当前 macOS 安装包为 Apple Silicon（arm64）版本。Intel Mac 需要在本机重新构建，
+> 并修改 `scripts/build-mac.mjs` 的目标架构。
+
+## 安装与首次启动
+
+1. 下载并打开 `Tally-v1.4.2-mac-arm64.dmg`。
+2. 把 `Tally.app` 拖进 `Applications` 文件夹。
+3. 首次启动时，在 Finder 里右键 `Tally.app`，选择「打开」。
+
+如果 macOS 仍提示无法验证开发者，可在终端执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Tally.app"
+open "/Applications/Tally.app"
+```
+
+Tally 使用 ad-hoc 签名，没有 Apple Developer ID，也没有经过公证，因此首次运行出现
+Gatekeeper 提示属于预期行为。
+
+## 使用方法
+
+### 菜单栏常驻
+
+- 启动后 Tally 只显示面板，不占用 Dock 和 `Cmd+Tab`。
+- 点击左上角红色关闭按钮 `×`，面板会**收进菜单栏**，不会退出程序。
+- 单击菜单栏 Tally 图标，会显示三项实时摘要：
+  - OpenCode Go：5 小时 / 本周 / 本月
+  - commandcode：5 小时 / 本周 / 每月
+  - WorkBuddy：积分余额
+- 菜单中的三行摘要也是可点击项，点击任一行会重新显示面板。
+- 要真正退出，请使用菜单栏菜单里的「退出 Tally」。
+
+### 桌面常驻与置顶
+
+- 默认固定在桌面：切换桌面、进入触发角、显示桌面、Mission Control 时不会消失。
+- 普通应用窗口会盖在 Tally 上；点击标题栏的固定按钮可切换为始终置顶。
+- 开启置顶后使用 macOS `floating` 层级，不会覆盖全屏应用和系统 UI。
+- 拖动右下角斜纹把手可等比缩放；选择会被记住。
+
+### 液态玻璃与经典界面
+
+- 默认使用液态玻璃界面。
+- 标题栏左侧的「经典 / 玻璃」按钮可以随时切换。
+- 主题选择保存在本地配置中，重启后继续生效。
+
+### 开机自启
+
+在设置中开启「开机自动启动」。如果 macOS 提示需要许可，请前往：
+
+`系统设置 → 通用 → 登录项与扩展`
+
+把 Tally 加入允许列表。未签名应用或不在 `/Applications` 下的 `.app` 可能无法登记登录项。
+
+### 数据位置与重置
+
+macOS 分发版默认把数据保存在：
+
+```text
+~/Library/Application Support/Tally/config.json
+```
+
+该目录包含 OpenCode API Key、commandcode API Key 和 WorkBuddy 续期令牌。
+**不要把该目录或自己的 `Tally.app` 数据一起发给别人。**
+
+需要重置时，先退出 Tally，再把整个目录改名备份：
+
+```bash
+mv "$HOME/Library/Application Support/Tally" \
+   "$HOME/Library/Application Support/Tally.backup"
+```
+
+下次启动会生成空白配置。
 
 ## 功能
 
-### OpenCode Go 用量
+### OpenCode Go
 
-- 三档额度窗口（**5 小时 / 本周 / 本月**）的剩余百分比与重置倒计时
-- 按官方额度反推的美元估算（`≈$0.96 / $12.00`）
-- **多账号**：一条 profile 对应一个订阅账号，最多 8 个，顶部切换条一键换号
-- 额度挂在**订阅账号**上而不是挂在 Key 上 —— 同账号生成的多个 Key 数字完全相同，填一条即可
-- 保留「原始响应 / 字段识别」展开区，解析异常时可自查
+- 5 小时、本周、本月三档额度的剩余百分比与重置倒计时
+- 金额估算、已用额度与套餐上限
+- 最多 8 个账号配置，可从顶部快速切换
+- 保留原始响应与字段识别，便于排查接口变化
 
-### WorkBuddy 每日积分
+### commandcode
 
-- 自动领取每日签到积分，面板显示连续签到天数、本期累计、本周已签
-- **自动领取默认是关的**，要在设置里打开 `autoCheckin`；开启后每天自动领一次，不用手动点
-- **不需要账号密码、不做机器绑定，也不需要安装 WorkBuddy 客户端**：
-  点「登录 WorkBuddy」会用系统浏览器打开**官方登录页**，你在网页里正常登录一次，
-  Tally 拿到的是一份**属于它自己的令牌**（微信扫码 / 手机号 / 企业 SSO 都可以）
-- 之后由 Tally 自己保存并**自动续期**，不再读客户端任何文件，也不用反复登录
-- 显示账户**积分余额**（所有资源包求和）与**本期累计**（仅本次签到活动期）
+- 使用独立 API Key，与 OpenCode 账号不共用
+- 5 小时、本周、每月三档额度
+- 前两档显示剩余百分比、重置时间、已用金额 / 上限
+- 月度接口只返回剩余金额，因此显示「剩余 $xx」与本期重置日期
+- 默认不显示，填写 Key 并打开开关后才出现
 
-### commandcode 额度
+### WorkBuddy
 
-- 独立的第二个额度服务，用**单独的 API Key**（与 OpenCode 账号不共用），在设置里填入后开启
-- 显示**两档滚动窗口**（5 小时 / 本周）的已用百分比、重置倒计时与已用金额
-- 套餐与计费周期也一并读取（`/alpha/billing/subscriptions`）
-- 默认**不显示**：填了 Key 并打开开关后才出现在面板上
+- 通过官方网页登录，不需要保存账号密码
+- 自动续期 Tally 自己的令牌
+- 显示积分余额、连续签到、本期累计与本周签到进度
+- 可手动领取，也可在设置里开启每日自动领取
+- 仅支持中国大陆版 WorkBuddy
 
-### 窗口行为
+### 界面
 
-- **桌面常驻**：主动锚定在「桌面之上、所有应用之下」的 gadget 层。
-  即使用鼠标点它、拖它把它带到最前，也会立刻自己沉回桌面层，绝不长期压住其它窗口
-- **可选置顶**：需要时才开，开启后永远浮在最上层（连任务栏在内），
-  切换显示器 / 副屏重连后自动回到最前，且打字时不去抢输入法候选框
-- **等比缩放**：拖右下角把手可整体放大缩小，文字 / 间距 / 图标一起变、**排版不变**；
-  缩放上限跟着屏幕大小自动收窄，倍率会记住
-- **关闭到托盘**：点 × 默认只是收进托盘，后台刷新与自动领取不停；真退出走托盘右键
-- **开机自启**：可选，写 `HKCU\...\CurrentVersion\Run`
-
-### 其它
-
-- 自动刷新间隔可调（20 秒 ~ 30 分钟，默认 60 秒）
+- 液态玻璃 / 经典双主题
 - 面板不透明度可调
-- 显示／隐藏、置顶、锁定等操作都有托盘入口
+- 自动刷新间隔可调（20 秒 ~ 30 分钟）
+- 等比缩放窗口，不改变内部排版
+- 界面错误隔离，单个数据区块失败不会拖垮整个面板
 
----
+## 隐私与仓库安全
+
+- 源码仓库不包含 API Key、JWT、WorkBuddy 令牌或用户标识。
+- `data/`、`.smoke-*/`、`.trash/`、`release/`、`node_modules/`、`dist/`、
+  运行截图和本机诊断文件均被 `.gitignore` 排除。
+- 配置与登录态只保存在本机，不会上传到 GitHub。
+- WorkBuddy 登录走官方网页流程；macOS 版不使用客户端登录态解密模块。
+- 发布前会扫描打包产物中的 `sk-*` 与 JWT 特征，并检查分发版没有空白配置以外的数据。
 
 ## 开发
 
-```bash
-npm install
+环境要求：macOS、Node.js、npm、Xcode Command Line Tools。
 
-npm run dev        # Vite 开发服务器（热更新）
-npm run build      # 构建渲染层到 dist/
-npm run electron   # 直接用 Electron 跑（需先 build）
-npm run start      # build + electron
+```bash
+npm ci
+npm run dev
 ```
 
 类型检查：
@@ -75,161 +146,78 @@ npm run start      # build + electron
 npx tsc --noEmit -p tsconfig.json
 ```
 
-### 打包绿色版
+生产构建：
 
 ```bash
-npm run portable        # 自用版 → release/Tally（保留已有 data/config.json）
-npm run share           # 分发版 → release/Tally-share（空白配置 + 密钥扫描）
-npm run portable:full   # 强制重装 Electron 运行时
+npm run build
 ```
 
-`scripts/build-portable.mjs` 会顺带做三件事：写入 exe 的 PE 资源（图标 + 版本信息）、
-**逐文件比对产物与源**、**密钥特征扫描**。运行时已存在时只同步 app 代码，几秒完成。
-
-> ⚠️ 写 PE 资源会破坏 Electron 官方 exe 的数字签名，首次运行可能弹 SmartScreen
-> （「更多信息」→「仍要运行」），同机器之后不再提示。
-
-### 打包 macOS 版
-
-必须在 **macOS 上**执行（打包要往 `.app` 里塞运行时、改 Info.plist、做签名，Windows 上做不了）：
+### 构建 macOS `.app`
 
 ```bash
-npm ci
-npm run build           # 先构建渲染层
-npm run mac             # 自用版 → release/mac/Tally.app + release/Tally-v<版本>-mac.zip
-npm run mac:share       # 分发版 → release/mac-share/Tally.app + release/Tally-v<版本>-share-mac.zip
+npm run mac          # 自用版：release/mac/Tally.app
+npm run mac:share    # 分发版：release/mac-share/Tally.app
 ```
 
-`scripts/build-mac.mjs` 做的事：
+`mac:share` 会：
 
-- 复制 `node_modules/electron/dist/Electron.app` → `Tally.app`，改写 `Info.plist`
-  （`CFBundleIdentifier` / `CFBundleName` / `CFBundleShortVersionString` / 图标 / 最低系统版本）
-- 把 `dist/`、`electron/`、`package.json` 塞进 `Contents/Resources/app/`
-- 换 `Contents/Resources/icon.icns`（由 `npm run icons` 生成）
-- **ad-hoc 签名**（`codesign --force --deep --sign -`）：未做 Apple 开发者签名，
-  首次打开需右键 →「打开」，或 `xattr -dr com.apple.quarantine /path/to/Tally.app`
-- 打 zip 便于分发（`ditto -c -k --sequesterRsrc --keepParent`，保留符号链接与资源分支）
+- 复制 Electron 运行时并生成 `Tally.app`
+- 写入 Bundle ID、版本、图标和 `LSUIElement`
+- 编译 `native/macos/window_behavior.mm`
+- 使用 ad-hoc 签名并校验
+- 检查分发版不含本地凭据
+- 输出 `release/Tally-v1.4.2-share-mac.zip`
 
-macOS 上的行为差异（由 `electron/services/platform.cjs` 集中处理）：
-
-| 项目 | Windows | macOS |
-|---|---|---|
-| 数据目录 | 程序目录旁 `data/` | `.app` 同级有 `data/` 则认便携，否则 `~/Library/Application Support/Tally`（`.app` 只读，写进去会破坏签名） |
-| 置顶层级 | `screen-saver`（能压住任务栏） | `floating`（盖普通窗口，但不压全屏应用和系统 UI） |
-| 贴桌面 | 原生桌面层（PowerShell 守护 Z 序） | 普通层级 + 常驻所有 Space（mac 无等价的公开桌面层） |
-| 常驻入口 | 任务栏托盘（彩色 PNG） | 菜单栏（`trayTemplate.png`，深浅色自动反色），Dock 图标隐藏 |
-| 开机自启 | `HKCU\...\Run` 注册表 | `SMAppService` 登录项（未签名/不在 /Applications 时需用户在系统设置里允许） |
-| 退出 | 托盘菜单「退出」 | 菜单栏「退出」或 `Cmd+Q` |
-
-> 注意：Windows 版有 `wb-recover.local.cjs` 用来解密客户端登录态做兜底，
-> 分发版会剥掉它；macOS 版**本来就没有这个能力**，登录一律走官方网页登录，
-> 功能不受影响。
-
-### 图标与 exe 资源
+### 生成 DMG
 
 ```bash
-npm run icons                          # 重新生成图标（零依赖，自绘几何）
-node scripts/make-icons.mjs --list     # 列出可用变体
-node scripts/set-exe-resources.mjs     # 单独写 exe 图标与版本信息
+npm run mac:dmg
 ```
 
----
+输出：
 
-## 数据与隐私
-
-- 所有配置都在程序目录的 `data/config.json`，**纯本地、不上传**
-- 需要重置就删掉 `data/` 目录，下次启动自动重建
-- **仓库里不含任何 API Key**：`data/` 已被 `.gitignore` 排除
-- WorkBuddy 登录走**官方网页登录**（`POST /v2/plugin/auth/state` → 浏览器登录 →
-  轮询 `/v2/plugin/auth/token`），用的是服务端下发的一次性 `state`；
-  **不读客户端令牌、不解客户端密文、不回写任何客户端文件**
-- 登录拿到的令牌存在本地 `wbCredential`，只在本机流转，**不上传**
-- OpenCode Key 存在本地 config，不入库、不外传
-- 如本机恰好装着 WorkBuddy 客户端，Tally 仍会在**未登录时**只读地借用它的登录态做兜底，
-  但一旦你主动登录过，就只用自己的凭据
-- `data/config.json` 里的 `wbCredential` 是 Tally 自己保存的续期凭证（含 refreshToken）。
-  **别把用过的 `data/` 目录连着程序一起发给别人** —— 那等于把自己的账号借出去
-
-```jsonc
-// data/config.json 结构（截取）
-{
-  "opencodeProfiles": [{ "id": "...", "name": "个人号", "apiKey": "" }],
-  "activeProfileId": "",
-  "commandCodeKey": "",      // commandcode 的独立 API Key
-  "showCommandCode": false,  // 是否在面板显示 commandcode 区块
-  "wbCredential": null,      // WorkBuddy 续期凭证，首次启动后自动写入（含 refreshToken）
-  "refreshSeconds": 60,
-  "opacity": 0.97,
-  "alwaysOnTop": false,
-  "autoCheckin": false,      // 每日积分自动领取，默认关闭
-  "closeToTray": true,
-  "autoStart": false,
-  "windowScale": 1
-}
+```text
+release/Tally-v1.4.2-mac-arm64.dmg
 ```
 
----
+脚本会重新校验 DMG，并输出 SHA-256。
 
-## 目录结构
+## 项目结构
 
-```
+```text
 electron/
-  main.cjs                 主进程：窗口、缩放、托盘、置顶、自启、IPC
-  preload.cjs              contextBridge → window.tally
-  desktop-keep.ps1         Z 序守护（常驻 PowerShell，主动沉底）
+  main.cjs                     窗口、菜单栏、置顶、自启与 IPC
+  preload.cjs                  contextBridge → window.tally
   services/
-    store.cjs              配置读写与迁移
-    opencode.cjs           OpenCode Go 用量取数（宽容解析）
-    commandcode.cjs        commandcode 额度取数（credits / subscriptions）
-    workbuddy.cjs          签到 / 积分余额 / 凭据续期 / 登录态定位
-    wb-login.cjs           WorkBuddy 官方网页登录（state → 浏览器 → 轮询令牌）
-    desktop-keeper.cjs     守护进程的生命周期管理
-  assets/                  图标（PNG / ICO）
+    platform.cjs               Windows / macOS 平台差异
+    store.cjs                  本地配置读写与迁移
+    opencode.cjs               OpenCode Go 用量
+    commandcode.cjs            commandcode 额度
+    workbuddy.cjs              WorkBuddy 签到、积分与令牌续期
+    wb-login.cjs               官方网页登录
+    desktop-keeper.cjs         桌面层级守护
+  assets/                      应用与菜单栏图标
+native/
+  macos/window_behavior.mm     NSPanel / Space / Mission Control 行为
 src/
-  App.tsx                  面板主体
-  components/              UsageSection / BuddySection / CommandCodeSection /
-                           SettingsSection / ResizeGrip
-  types.ts                 渲染层与主进程共享类型
-  styles.css
+  App.tsx                      面板主体
+  components/                  用量、额度、签到、设置等区块
+  styles.css                   液态玻璃与经典主题
 scripts/
-  build-portable.mjs       绿色版打包（同步校验 + 密钥扫描）
-  make-icons.mjs           图标生成（零依赖自绘）
-  set-exe-resources.mjs    写 exe 的 PE 资源
+  build-mac.mjs                .app / ZIP 构建
+  build-dmg.sh                 DMG 构建与校验
+  make-icons.mjs               图标生成
 ```
-
-架构约定：**外部取数一律在主进程**，渲染层只通过 preload 暴露的 `window.tally` 调用。
-
----
-
-## 自检开关
-
-调试用的环境变量（不影响正常使用）：
-
-| 变量 | 作用 |
-|---|---|
-| `TALLY_DATA_DIR` | 覆盖数据目录（同时隔离 Electron userData，避免与正式版抢单例锁） |
-| `TALLY_SMOKE=1` | 稳定后执行脚本 → 截图 → 退出（配 `_DELAY` / `_OUT` / `_EVAL`） |
-| `TALLY_MOCK_USAGE=1` | 假用量样本，不请求真实接口 |
-| `TALLY_MOCK_CC=1` | 假 commandcode 额度样本 |
-| `TALLY_STORE_TRACE=1` | 打印每次配置写盘的调用栈，排查「改了没生效」 |
-| `TALLY_KEEP_TEST=1` | Z 序守护链路自检 |
-| `TALLY_SCALE_TEST=1` | 界面等比缩放自检 |
-| `TALLY_AUTOSTART_TEST=1` | 开机自启注册表读写自检 |
-| `TALLY_TRAY_TEST=1` | 托盘行为自检 |
-| `TALLY_AUTOQUIT_MS=N` | N 毫秒后自动退出 |
-
----
 
 ## 已知限制
 
-- **仅支持中国大陆版 WorkBuddy**（接口域名 `www.codebuddy.cn` / `www.workbuddy.cn`），
-  其它区域版本可能不通
-- 首次使用需要**点一次「登录 WorkBuddy」**在浏览器里完成登录（不需要装客户端）；
-  之后由 Tally 自己保存并自动续期
-- 绿色版**挪目录后开机自启项失效**，需把开关关掉再打开一次重建路径
-- 未购买代码签名证书，首次运行有 SmartScreen 提示
+- 当前安装包仅支持 Apple Silicon。
+- 没有 Apple Developer ID，未公证；升级后首次打开仍可能需要右键「打开」。
+- WorkBuddy 仅支持中国大陆版接口。
+- 桌面常驻依赖 macOS 原生窗口补丁；更换 Electron 主版本后需重新验证。
+- 开机自启可能被 macOS「登录项与扩展」权限拦截，需要在系统设置中手动允许。
 
-## 免责
+## 免责声明
 
-本软件通过 WorkBuddy 官方网页登录获取属于使用者本人的令牌，并据此调用官方接口，
-属个人效率工具。请自行确认使用方式符合所在平台的服务条款。
+Tally 通过 WorkBuddy 官方网页登录获取属于使用者本人的令牌，并调用官方接口。
+这是个人效率工具，请自行确认使用方式符合相关平台的服务条款。

@@ -134,25 +134,35 @@ export default function CommandCodeSection({
         );
       })}
 
-      {monthTotal != null && (
-        <div className="cc-month">
-          <span>剩余额度</span>
-          <span className="cc-month-val">
-            {fmtMoney(monthTotal)}
-            {s?.belowThreshold ? <span className="cc-warn"> 余额偏低</span> : null}
+      <div className="qrow cc-monthly-row">
+        <div className="qrow-top">
+          <span className="qrow-label">每月</span>
+          <span className="qrow-reset">
+            {shown?.plan?.currentPeriodEnd
+              ? `本期重置 ${new Date(shown.plan.currentPeriodEnd).toLocaleDateString('zh-CN')}`
+              : '按账单周期重置'}
           </span>
         </div>
-      )}
-
-      {shown?.plan?.currentPeriodEnd && (
-        <div className="cc-month" style={{ marginTop: -4 }}>
-          <span>本期重置</span>
-          <span className="cc-month-val">
-            {new Date(shown.plan.currentPeriodEnd).toLocaleDateString('zh-CN')}
-            {shown.plan.cancelAtPeriodEnd ? <span className="cc-warn"> 到期取消</span> : null}
+        <div className={`bar cc-month-bar${s?.belowThreshold ? ' low' : ''}`}>
+          {monthTotal != null && <i />}
+        </div>
+        <div className="qrow-foot">
+          <span className={`qrow-remain${s?.belowThreshold ? ' low' : ''}`}>
+            {monthTotal == null ? (
+              '接口未返回月度余额'
+            ) : (
+              <>剩余 <b>{fmtMoney(monthTotal)}</b></>
+            )}
+          </span>
+          <span className="qrow-usd">
+            {s?.belowThreshold
+              ? '余额偏低'
+              : shown?.plan?.cancelAtPeriodEnd
+                ? '本期结束取消'
+                : '月度可用额度'}
           </span>
         </div>
-      )}
+      </div>
 
       {shown && shown.windows.every((w) => !w.detected) && (
         <div className="notice" style={{ marginTop: 11 }}>

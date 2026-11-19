@@ -15,9 +15,9 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 
-// ⚠️ 只支持 Windows：整套机制建立在 EnumWindows / SetWindowPos 这些 Win32 调用上，
-// macOS 没有等价物（贴桌面在 mac 上退化为「普通层级 + 全 Space 常驻」，见 platform.cjs）。
-// 这里做硬守卫，保证 mac 上 update() 是纯 no-op —— 否则会去 spawn 一个不存在的 powershell。
+// ⚠️ 只支持 Windows：整套机制建立在 EnumWindows / SetWindowPos 这些 Win32 调用上。
+// macOS 使用 Gold Monitor 同款 NSPanel normal/floating 层级与全 Space 常驻（见 platform.cjs），
+// 不需要这个守护进程。这里做硬守卫，保证 mac 上 update() 是纯 no-op。
 const SUPPORTED = process.platform === 'win32';
 
 const SCRIPT = path.join(__dirname, '..', 'desktop-keep.ps1');

@@ -9,7 +9,7 @@ import type {
   StatusResult,
   UsageResult,
 } from './types';
-import { fmtCredits, fmtVersion } from './format';
+import { fmtCredits, fmtMoney, fmtVersion } from './format';
 import UsageSection from './components/UsageSection';
 import CommandCodeSection from './components/CommandCodeSection';
 import BuddySection from './components/BuddySection';
@@ -95,6 +95,7 @@ export default function App() {
 
   const profiles = config?.opencodeProfiles ?? [];
   const activeId = config?.activeProfileId ?? '';
+  const isGlass = config?.uiTheme === 'glass';
   const activeUsage: UsageResult | null = activeId ? (usageMap[activeId] ?? null) : null;
   const activeLastOk: OkUsage | null = activeId ? (lastOkMap[activeId] ?? null) : null;
 
@@ -267,6 +268,73 @@ export default function App() {
     window.tally.setTrayTip(parts.join(' · ') || '用量与积分');
   }, [lastOkBalance, lastOkStatus]);
 
+  // 单击 macOS 菜单栏图标时显示三项余额，每项一行。
+  useEffect(() => {
+    let opencode = 'OpenCode Go · 未配置';
+    if (profiles.length > 0) {
+      if (activeLastOk) {
+        const windows = activeLastOk.windows
+          .filter((w) => w.detected)
+          .map((w) => {
+            const remain = w.remainingPct ?? (w.usedPct != null ? 100 - w.usedPct : null);
+            return `${w.label} ${remain == null ? '—' : `${Math.round(remain)}%`}`;
+          });
+        opencode = `OpenCode Go · ${windows.join(' · ') || '已连接'}`;
+      } else {
+        opencode = activeUsage && !activeUsage.ok ? 'OpenCode Go · 取数失败' : 'OpenCode Go · 加载中…';
+      }
+    }
+
+    let commandcode = 'commandcode · 未配置';
+    if (config?.commandCodeKey) {
+      if (ccLastOk) {
+        const vals = [
+          ccLastOk.summary.monthlyCredits,
+          ccLastOk.summary.purchasedCredits,
+          ccLastOk.summary.freeCredits,
+        ].filter((v): v is number => typeof v === 'number');
+        const windows = ccLastOk.windows
+          .filter((w) => w.detected)
+          .map((w) => {
+            const remain = w.remainingPct ?? (w.usedPct != null ? 100 - w.usedPct : null);
+            return `${w.label} ${remain == null ? '—' : `${Math.round(remain)}%`}`;
+          });
+        const parts = [...windows];
+        if (vals.length) {
+          const monthRemaining = fmtMoney(vals.reduce((sum, v) => sum + v, 0));
+          parts.push(`每月 剩余 ${monthRemaining}`);
+          commandcode = `commandcode · ${parts.join(' · ')}`;
+        } else {
+          parts.push('每月 —');
+          commandcode = `commandcode · ${parts.join(' · ')}`;
+        }
+      } else {
+        commandcode = ccUsage && !ccUsage.ok ? 'commandcode · 取数失败' : 'commandcode · 加载中…';
+      }
+    }
+
+    let workbuddy = 'WorkBuddy · 加载中…';
+    if (lastOkBalance) {
+      workbuddy = `WorkBuddy · 积分余额 ${fmtCredits(lastOkBalance.credits.remain)} 分`;
+    } else if (diagnose && !diagnose.linked) {
+      workbuddy = 'WorkBuddy · 未登录';
+    } else if (balance && !balance.ok) {
+      workbuddy = 'WorkBuddy · 余额读取失败';
+    }
+
+    window.tally.setTraySummary([opencode, commandcode, workbuddy]);
+  }, [
+    profiles,
+    activeLastOk,
+    activeUsage,
+    config?.commandCodeKey,
+    ccLastOk,
+    ccUsage,
+    lastOkBalance,
+    balance,
+    diagnose,
+  ]);
+
   // 托盘菜单里的「立即领取今日积分」
   useEffect(() => window.tally.onTrayClaim(() => doClaim()), [doClaim]);
 
@@ -374,7 +442,7 @@ export default function App() {
   }
 
   return (
-    <div className="card" ref={cardRef}>
+    <div className={`card${isGlass ? ' glass' : ''}`} ref={cardRef}>
       <div className="header">
         <span className="brand">Tally</span>
         <span className="brand-sub">
@@ -382,11 +450,20 @@ export default function App() {
         </span>
         <span className="header-spacer" />
         <button
+          className="theme-toggle"
+          title={isGlass ? '液态玻璃已开启 · 点击切回经典界面' : '切换到液态玻璃界面'}
+          aria-pressed={isGlass}
+          onClick={() => saveConfig({ uiTheme: isGlass ? 'classic' : 'glass' })}
+        >
+          <span className="theme-orb" aria-hidden="true" />
+          <span>{isGlass ? '经典' : '玻璃'}</span>
+        </button>
+        <button
           className={`icon-btn${config.alwaysOnTop ? ' on' : ''}`}
           title={
             config.alwaysOnTop
               ? '当前：永远浮在最前（会盖住文件夹和浏览器）· 点击改为贴桌面'
-              : '贴桌面中：待在所有窗口之下，绝不遮挡 · 点击改为永远浮在最前'
+              : '已固定回桌面：其它应用窗口会正常盖住它 · 点击改为始终置顶'
           }
           onClick={() => saveConfig({ alwaysOnTop: !config.alwaysOnTop })}
         >
@@ -405,13 +482,13 @@ export default function App() {
         <button
           className="icon-btn close"
           title={
-            config.closeToTray
-              ? info?.isMac
-                ? '关闭到菜单栏（菜单栏图标可退出）'
-                : '关闭到托盘（托盘菜单可退出）'
-              : '退出'
+            info?.isMac
+              ? '关闭到菜单栏（菜单栏图标可退出）'
+              : config.closeToTray
+                ? '关闭到托盘（托盘菜单可退出）'
+                : '退出'
           }
-          onClick={() => (config.closeToTray ? window.tally.close() : window.tally.quit())}
+          onClick={() => (config.closeToTray || info?.isMac ? window.tally.close() : window.tally.quit())}
         >
           {ICON_CLOSE}
         </button>

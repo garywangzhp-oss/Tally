@@ -8,6 +8,8 @@ const DEFAULTS = {
   activeProfileId: '',
   refreshSeconds: 60,
   opacity: 0.97,
+  // 界面风格。默认使用液态玻璃；顶部「经典 / 玻璃」按钮负责随时切回。
+  uiTheme: 'glass',
   locked: false,
   // 窗口层级：false = 贴桌面（默认，别的窗口能盖住它）；true = 永远浮在最前
   alwaysOnTop: false,

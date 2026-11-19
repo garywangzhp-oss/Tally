@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('tally', {
   getAppInfo: () => ipcRenderer.invoke('app:info'),
 
   setTrayTip: (text) => ipcRenderer.invoke('tray:tip', text),
+  setTraySummary: (lines) => ipcRenderer.invoke('tray:summary', lines),
   // 托盘菜单「立即领取今日积分」的回调；返回取消订阅函数
   onTrayClaim: (handler) => {
     const listener = () => handler();

@@ -1,4 +1,8 @@
+# macOS 文件系统元数据
+.DS_Store
+._*
 # 依赖与构建产物
+node_modules
 node_modules/
 dist/
 release/
@@ -39,3 +43,6 @@ data/
 
 # 截图归档（体积大，且可从自检重新生成）
 snapshots/
+
+# 构建脚本生成的 macOS 原生补丁
+electron/native/tally-window.node

@@ -26,7 +26,7 @@ if (platform.IS_WIN) {
 // 绿色版：把 userData 也重定向到程序目录，避免往 %APPDATA% 里塞缓存（拔走目录即无痕）。
 // macOS 的 .app 是只读包（写进去会破坏签名），所以那边只认「.app 同级已有 data/」的
 // 便携形态，否则落 ~/Library/Application Support/Tally —— 判定全在 platform.resolvePaths()。
-if (app.isPackaged) {
+if (platform.IS_PACKAGED) {
   try {
     if (platform.shouldRelocateUserData()) {
       app.setPath('userData', platform.resolvePaths().userDataDir);
@@ -54,6 +54,12 @@ let win = null;
 let store = null;
 let saveTimer = null;
 let tray = null;
+// 菜单栏单击后展示的三行摘要，由渲染层按当前数据实时推送。
+let traySummary = [
+  'OpenCode Go · 加载中…',
+  'commandcode · 加载中…',
+  'WorkBuddy · 加载中…',
+];
 // 托盘菜单的「退出」是唯一真正的退出路径；点关闭按钮只隐藏。
 // 用这个标志把「用户主动退出」和「窗口被关掉」区分开，否则 app.quit() 会被
 // close 事件里的 preventDefault 拦下来，变成永远退不掉。
@@ -156,18 +162,20 @@ function applyAlwaysOnTop(on) {
   if (!win || win.isDestroyed()) return;
 
   // ---------- macOS ----------
-  // 没有「桌面层」这回事：贴桌面 = 普通层级 + 所有 Space 常驻，置顶 = floating。
-  // 也不用担心 HWND_NOTOPMOST 那个坑（Windows 专有行为），mac 上 setAlwaysOnTop(false)
-  // 只是老老实实回落一级。
+  // Gold Monitor 同款 NSPanel 策略：普通模式明确落到 normal 层，置顶才升到 floating。
+  // panel 的默认层级是 floating，所以关闭置顶时必须无条件设置 false，不能只判断标志位。
   if (platform.IS_MAC) {
     if (on) {
       win.setAlwaysOnTop(true, TOP_LEVEL); // floating：盖普通窗口，不盖全屏/系统 UI
       win.moveTop();
-    } else if (win.isAlwaysOnTop()) {
-      win.setAlwaysOnTop(false);
+    } else {
+      win.setAlwaysOnTop(false, 'normal');
     }
-    platform.stickToAllSpaces(win);
-    topLog(`apply -> ${on ? `on(${TOP_LEVEL})` : 'off'} mac spaces=all`);
+    const behavior = platform.stickToAllSpaces(win, on);
+    topLog(
+      `apply -> ${on ? `on(${TOP_LEVEL})` : 'off'} mac spaces=all ` +
+        `behavior=${behavior?.after ?? 'unknown'} style=${behavior?.styleMask ?? 'unknown'} level=${behavior?.level ?? 'unknown'}`
+    );
     return;
   }
 
@@ -328,7 +336,7 @@ function readAutoStart() {
 }
 
 function applyAutoStart(on) {
-  if (!app.isPackaged) {
+  if (!platform.IS_PACKAGED) {
     return {
       ok: false,
       reason: 'dev',
@@ -412,7 +420,7 @@ function showPanel() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
-  enforceTopmost(true);
+  applyAlwaysOnTop(Boolean(store?.get('alwaysOnTop')));
   syncDesktopKeeper();
 }
 
@@ -436,7 +444,10 @@ function togglePanel() {
 function buildTrayMenu() {
   const visible = !panelHidden && Boolean(win && !win.isDestroyed() && win.isVisible());
   return Menu.buildFromTemplate([
-    { label: trayTip, enabled: false },
+    ...traySummary.slice(0, 3).map((label) => ({
+      label,
+      click: () => showPanel(),
+    })),
     { type: 'separator' },
     { label: visible ? '隐藏面板' : '显示面板', click: () => togglePanel() },
     {
@@ -550,7 +561,7 @@ function createWindow() {
   });
 
   // 小组件默认不开 DevTools，需要调试时用 TALLY_DEVTOOLS=1 启动
-  if (!app.isPackaged && process.env.TALLY_DEVTOOLS === '1') {
+  if (!platform.IS_PACKAGED && process.env.TALLY_DEVTOOLS === '1') {
     win.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -563,12 +574,12 @@ function createWindow() {
     // 首帧已渲染、还没显示 —— 此刻设 zoom 最划算：用户看不到中间态
     applyScale(scale);
     win.setOpacity(Math.max(0.3, Math.min(1, Number(cfg.opacity) || 0.97)));
-    // 构造函数里传的 alwaysOnTop 只拿到默认 level，这里按最强 level 再应用一次
-    applyAlwaysOnTop(Boolean(cfg.alwaysOnTop));
     // 贴桌面模式用 showInactive()：不抢焦点。开机时把光标从用户正在用的窗口抢走很讨嫌，
     // 而面板本来就不该是"喊你看我"的角色。置顶模式是用户主动开的，保持 show()。
     if (cfg.alwaysOnTop) win.show();
     else win.showInactive();
+    // ⚠️ 必须在 show 之后重放层级：NSPanel 被 showInactive/show 唤醒时会恢复默认 floating。
+    applyAlwaysOnTop(Boolean(cfg.alwaysOnTop));
     syncDesktopKeeper();
   });
 
@@ -581,7 +592,8 @@ function createWindow() {
   });
   win.on('show', () => {
     panelHidden = false;
-    enforceTopmost(true);
+    // NSPanel 每次 show 都可能回到默认 floating；统一按配置重放 normal/floating。
+    applyAlwaysOnTop(Boolean(store?.get('alwaysOnTop')));
     refreshTrayMenu();
     syncDesktopKeeper();
   });
@@ -595,6 +607,7 @@ function createWindow() {
     syncDesktopKeeper();
   });
   win.on('restore', () => {
+    applyAlwaysOnTop(Boolean(store?.get('alwaysOnTop')));
     refreshTrayMenu();
     syncDesktopKeeper();
   });
@@ -936,6 +949,9 @@ function registerIpc() {
       clean.opacity = Math.max(0.3, Math.min(1, patch.opacity));
       if (win && !win.isDestroyed()) win.setOpacity(clean.opacity);
     }
+    if (patch?.uiTheme === 'glass' || patch?.uiTheme === 'classic') {
+      clean.uiTheme = patch.uiTheme;
+    }
     if (typeof patch?.alwaysOnTop === 'boolean') {
       clean.alwaysOnTop = patch.alwaysOnTop;
       applyAlwaysOnTop(patch.alwaysOnTop);
@@ -1132,8 +1148,13 @@ function registerIpc() {
     if (win && !win.isDestroyed()) win.minimize();
   });
 
-  // 关闭按钮：走 win.close()，让 close 事件决定是收进托盘还是真退出
+  // 关闭按钮：macOS 直接隐藏到菜单栏，避免 borderless NSPanel 的 close 事件被系统吞掉；
+  // Windows 继续走 win.close()，由 closeToTray 决定收进托盘还是退出。
   ipcMain.handle('window:close', () => {
+    if (platform.IS_MAC) {
+      hidePanel();
+      return;
+    }
     if (win && !win.isDestroyed()) win.close();
   });
 
@@ -1141,6 +1162,16 @@ function registerIpc() {
   ipcMain.handle('tray:tip', (_e, text) => {
     if (typeof text !== 'string') return;
     trayTip = `Tally · ${text}`.slice(0, 120);
+    refreshTrayMenu();
+  });
+
+  ipcMain.handle('tray:summary', (_e, lines) => {
+    if (!Array.isArray(lines)) return;
+    traySummary = lines
+      .filter((line) => typeof line === 'string')
+      .slice(0, 3)
+      .map((line) => line.trim().slice(0, 140));
+    while (traySummary.length < 3) traySummary.push('');
     refreshTrayMenu();
   });
 
@@ -1182,7 +1213,7 @@ function registerIpc() {
     configPath: path.join(path.dirname(store.filePath), 'config.json'),
     tokenPath: workbuddy.tokenFilePath(),
     electron: process.versions.electron,
-    packaged: app.isPackaged,
+    packaged: platform.IS_PACKAGED,
     // 渲染层用来选文案：mac 上叫「菜单栏」，Windows 上叫「托盘」
     platform: process.platform,
     isMac: platform.IS_MAC,
@@ -1224,7 +1255,7 @@ if (!gotLock) {
 
     // 开机自启：注册表才是事实来源。用户可能在任务管理器「启动」页里禁用掉那条，
     // 配置里的 true 就成了谎话 —— 启动时对齐一次，界面显示的就是真实状态。
-    if (app.isPackaged) {
+    if (platform.IS_PACKAGED) {
       const actualAutoStart = readAutoStart();
       if (Boolean(store.get('autoStart')) !== actualAutoStart) {
         console.log(
@@ -1240,7 +1271,7 @@ if (!gotLock) {
     // 开发模式下 applyAutoStart 会拒绝写注册表 —— 这里照样跑一遍，确认护栏真的拦住了。
     if (process.env.TALLY_AUTOSTART_TEST === '1') {
       const say = (...a) => console.log('[autostart-test]', ...a);
-      say(`packaged=${app.isPackaged}`);
+      say(`packaged=${platform.IS_PACKAGED}`);
       say(`execPath=${autoStartTarget()}`);
       const original = readAutoStart();
       say(`original openAtLogin=${original}`);
